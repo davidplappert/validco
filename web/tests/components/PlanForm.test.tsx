@@ -175,6 +175,48 @@ describe("PlanForm", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
+  it("plans exactly once when Enter follows an edit", async () => {
+    // The bug this pins: the Enter handler submitted directly while the
+    // debounce it had not cancelled fired a few hundred milliseconds later and
+    // submitted the identical snapshot again. Two Dijkstras per keypress, and
+    // the straggler cancelled any region build started in the gap — so
+    // pressing Enter on an uncovered address and then accepting "Add this
+    // area" silently abandoned the build.
+    //
+    // The assertion has to wait out the full delay. Checking immediately after
+    // Enter, as the test above does, passes with the bug present.
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<PlanForm busy={false} onSubmit={onSubmit} />);
+
+    const weight = screen.getByLabelText(/Weight/i);
+    await user.clear(weight);
+    await user.type(weight, "290{Enter}");
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled(), { timeout: AFTER_SETTLING_MS });
+    await pause(AFTER_SETTLING_MS);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.lastCall?.[0].profile.weight_lb).toBe(290);
+  });
+
+  it("replans on a second Enter even though nothing changed", async () => {
+    // The explicit "do it now" control has to keep working when the form is
+    // untouched — that is the whole reason it exists for an assistive
+    // technology user. Two presses are two deliveries of an equal value, which
+    // is why the submit effect keys on a revision counter rather than on the
+    // value itself.
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<PlanForm busy={false} onSubmit={onSubmit} />);
+
+    const field = screen.getByLabelText(/Start address/i);
+    await user.type(field, "{Enter}");
+    await user.type(field, "{Enter}");
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2), {
+      timeout: AFTER_SETTLING_MS,
+    });
+  });
+
   describe("duration slider", () => {
     it("shows the chosen value in its label", () => {
       render(<PlanForm busy={false} onSubmit={vi.fn()} />);

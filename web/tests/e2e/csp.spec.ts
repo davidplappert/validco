@@ -1,5 +1,6 @@
 import { expect, test, type ConsoleMessage, type Page } from "@playwright/test";
-import { stubApi } from "./fixtures";
+import { API_HOST, stubApi } from "./fixtures";
+import { openApp, planFor } from "./support/form";
 
 /**
  * Content-Security-Policy regression tests.
@@ -34,7 +35,6 @@ async function watchForViolations(page: Page): Promise<{ violations: string[]; e
   // formats differently across engines.
   await page.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (event) => {
-      // eslint-disable-next-line no-console
       console.error(
         `Content Security Policy violation: ${event.violatedDirective} blocked ${event.blockedURI}`,
       );
@@ -50,6 +50,14 @@ async function watchForViolations(page: Page): Promise<{ violations: string[]; e
  * Kept in sync with `infra/validco_infra/stack.py` — `test_security.py` asserts
  * the deployed template, and this asserts the browser honours it. If the two
  * drift, the stubbed API host below stops matching and these tests fail loudly.
+ *
+ * `https://api.e2e.test` stands in for the deployed
+ * `https://*.execute-api.<region>.amazonaws.com`, and it is one entry for a
+ * reason worth stating: `GET /v1/suggest` — the address dropdown, fired on
+ * every keystroke — goes to the *same* origin as `POST /v1/plan`, so the
+ * existing `connect-src` already permits it. A new endpoint on a new host would
+ * have needed a policy change; this one does not, and the suggest assertion
+ * below is what proves that rather than assuming it.
  */
 const DEPLOYED_CSP = [
   "default-src 'self'",
@@ -128,9 +136,8 @@ test.describe("under the production Content-Security-Policy", () => {
   test("planning a walk makes no blocked requests", async ({ page }) => {
     const { violations, errors } = await watchForViolations(page);
 
-    await page.goto("/");
-    await page.getByLabel(/Start address/i).fill("100 N Main St, Morton, IL");
-    await page.getByRole("button", { name: /find me a walk/i }).click();
+    await openApp(page);
+    await planFor(page, "100 N Main St, Morton, IL");
     await expect(page.getByLabel("Suggested walks")).toBeVisible();
     await page.waitForTimeout(1500);
 
@@ -138,19 +145,27 @@ test.describe("under the production Content-Security-Policy", () => {
     expect(errors).toEqual([]);
   });
 
-  test("the API host is reachable under the policy", async ({ page }) => {
+  test("the API host is reachable under the policy, autocomplete included", async ({ page }) => {
     // connect-src must permit the execute-api domain, or every request fails.
-    const apiStatuses: number[] = [];
+    // The dropdown is the newest thing to go over the wire, and it is a *GET to
+    // a different path on the same host* — so it is covered by the existing
+    // directive. Asserting it separately is what turns that from a belief into
+    // a test: a suggest endpoint moved to its own host would fail here.
+    const statuses: Record<string, number[]> = { plan: [], suggest: [], all: [] };
     page.on("response", (response) => {
-      if (response.url().includes("api.e2e.test")) apiStatuses.push(response.status());
+      const url = new URL(response.url());
+      if (url.host !== new URL(API_HOST).host) return;
+      statuses.all.push(response.status());
+      if (url.pathname.endsWith("/v1/plan")) statuses.plan.push(response.status());
+      if (url.pathname.endsWith("/v1/suggest")) statuses.suggest.push(response.status());
     });
 
-    await page.goto("/");
-    await page.getByLabel(/Start address/i).fill("100 N Main St");
-    await page.getByRole("button", { name: /find me a walk/i }).click();
+    await openApp(page);
+    await planFor(page, "100 N Main St");
     await expect(page.getByLabel("Suggested walks")).toBeVisible();
 
-    expect(apiStatuses.length).toBeGreaterThan(0);
-    expect(apiStatuses.every((status) => status === 200)).toBe(true);
+    expect(statuses.plan.length).toBeGreaterThan(0);
+    expect(statuses.suggest.length, "typing should query the suggest endpoint").toBeGreaterThan(0);
+    expect(statuses.all.every((status) => status === 200)).toBe(true);
   });
 });

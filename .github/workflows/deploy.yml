@@ -134,25 +134,15 @@ jobs:
       # lint failure anywhere in it skips the browser matrix, and running these
       # after the build means one run still reports everything else.
       #
-      # NON-BLOCKING, and this is a temporary state that must be removed.
-      # ESLint had never run against this codebase before it was configured, so
-      # the tree it landed on fails both checks: one react-hooks/exhaustive-deps
-      # error (an intentional no-dependency-array effect in useDebouncedValue.ts
-      # that needs a documented inline disable) and ~575 lines of purely
-      # mechanical Prettier reformatting across 30 files. Blocking on that
-      # today would stop every deploy on main — and main is the only deploy
-      # path this repository has — over findings that are not defects.
-      #
-      # A `continue-on-error` gate is the exact "reports success by not really
-      # running" failure mode tests/test_workflows.py exists to prevent, so it
-      # is not allowed to become the steady state. Clear the findings
-      # (`npm run format` plus one disable comment) and delete both
-      # `continue-on-error` lines in that same commit.
+      # These are blocking. They were introduced non-blocking for exactly one
+      # commit, because ESLint had never run here and the tree it landed on had
+      # findings — none of them defects. Those are cleared, so the exemption is
+      # gone: a gate that cannot fail is the "reports success by not really
+      # running" failure mode tests/test_workflows.py exists to prevent, and it
+      # does not get to live on main.
       - name: Lint
-        continue-on-error: true
         run: npm run lint
       - name: Format check
-        continue-on-error: true
         run: npm run format:check
 
   web-e2e:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Waiting mechanisms for a form that plans as you type.
@@ -77,6 +77,24 @@ export interface Settled<T> {
   value: T;
   /** True while a change is waiting out its delay — drives the loader. */
   pending: boolean;
+  /**
+   * Increments once per delivery, including every {@link Settled.flush}.
+   *
+   * Consumers should key their effect on this rather than on `value`. Pressing
+   * "now" twice with nothing changed in between is two deliveries of an
+   * identical value, and an effect watching `value` would see one — so the
+   * second press would do nothing, which is precisely what a user reaches for
+   * that control to avoid.
+   */
+  revision: number;
+  /**
+   * Deliver the current input immediately and cancel anything armed.
+   *
+   * For the explicit "do it now" path — pressing Enter. Cancelling matters as
+   * much as delivering: without it the armed timer still fires a few hundred
+   * milliseconds later and submits the same value a second time.
+   */
+  flush: () => void;
 }
 
 /**
@@ -96,12 +114,19 @@ export interface Settled<T> {
  *    for exactly the caller this codebase needs it for.
  */
 export function useSettledValue<T>(value: T, options: SettledOptions<T> = {}): Settled<T> {
-  const [settled, setSettled] = useState(value);
+  const [delivered, setDelivered] = useState<{ value: T; revision: number }>({
+    value,
+    revision: 0,
+  });
   const [pending, setPending] = useState(false);
 
   // Read through a ref so an inline options object does not re-arm anything.
   const latestOptions = useRef(options);
   latestOptions.current = options;
+
+  /** The live input, readable from a callback that fires later. */
+  const latestValue = useRef(value);
+  latestValue.current = value;
 
   /** The most recent input this hook has already reacted to. */
   const seen = useRef(value);
@@ -143,10 +168,28 @@ export function useSettledValue<T>(value: T, options: SettledOptions<T> = {}): S
     timer.current = setTimeout(() => {
       timer.current = null;
       committed.current = value;
-      setSettled(value);
+      setDelivered((previousDelivery) => ({
+        value,
+        revision: previousDelivery.revision + 1,
+      }));
       setPending(false);
     }, wait);
   });
+
+  const flush = useCallback(() => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const current = latestValue.current;
+    seen.current = current;
+    committed.current = current;
+    setPending(false);
+    setDelivered((previousDelivery) => ({
+      value: current,
+      revision: previousDelivery.revision + 1,
+    }));
+  }, []);
 
   useEffect(
     () => () => {
@@ -155,7 +198,7 @@ export function useSettledValue<T>(value: T, options: SettledOptions<T> = {}): S
     [],
   );
 
-  return { value: settled, pending };
+  return { value: delivered.value, pending, revision: delivered.revision, flush };
 }
 
 /**

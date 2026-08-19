@@ -207,34 +207,53 @@ export default function PlanForm({
     [address, origin, sex, age, weightLb, heightFt, heightIn, minutes, preferences],
   );
 
-  const { value: settled } = useSettledValue(form, {
+  const {
+    value: settled,
+    revision,
+    flush,
+  } = useSettledValue(form, {
     delayFor,
     isEqual: sameForm,
   });
 
-  // The page already plans DEFAULT_PLAN_REQUEST on mount, and this hook's first
-  // emission is that same snapshot — so without this guard the app would open
-  // by running two identical plans.
-  const submittedOnce = useRef(false);
+  /**
+   * The single place a plan is submitted from.
+   *
+   * Submitting from here *and* from the Enter handler fired two identical
+   * plans for every Enter — two Dijkstras, and worse, the straggler landed
+   * several hundred milliseconds later and cancelled any region build the user
+   * had started in between. Enter now only flushes the hook; this effect is
+   * still the only caller of `onSubmit`.
+   *
+   * It keys on `revision` rather than on `settled`, and that is load-bearing:
+   * pressing "now" twice with nothing changed is two deliveries of an equal
+   * value, and an effect watching the value would ignore the second — which is
+   * exactly the case the control exists for.
+   *
+   * The mount guard is separate. The page plans DEFAULT_PLAN_REQUEST itself,
+   * and revision 0 is that same snapshot, so acting on it would open the app
+   * by running two identical plans.
+   */
+  const latestSettled = useRef(settled);
+  latestSettled.current = settled;
   useEffect(() => {
-    if (!submittedOnce.current) {
-      submittedOnce.current = true;
-      return;
-    }
-    if (!isComplete(settled)) return;
-    onSubmit(toRequest(settled));
-  }, [settled, onSubmit]);
+    if (revision === 0) return;
+    const snapshot = latestSettled.current;
+    if (!isComplete(snapshot)) return;
+    onSubmit(toRequest(snapshot));
+  }, [revision, onSubmit]);
 
   /**
-   * Enter still submits, and skips the wait.
+   * Enter plans immediately rather than waiting out the delay.
    *
    * Someone who finishes typing and presses Enter has said they are done;
    * making them sit through the debounce would read as the app ignoring them.
+   * This only flushes — the effect above still does the submitting, which is
+   * what keeps one keypress to one plan.
    */
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    submittedOnce.current = true;
-    if (isComplete(form)) onSubmit(toRequest(form));
+    flush();
   };
 
   /**

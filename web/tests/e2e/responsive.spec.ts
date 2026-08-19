@@ -3,11 +3,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // These stub the network, so they describe the bundle's behaviour rather than a
 // deployment's. Running them against E2E_BASE_URL would intercept the real API
 // and prove nothing; `deployed.spec.ts` covers that case instead.
-test.skip(
-  Boolean(process.env.E2E_BASE_URL),
-  "stubbed specs run against the local export only",
-);
+test.skip(Boolean(process.env.E2E_BASE_URL), "stubbed specs run against the local export only");
 import { stubApi } from "./fixtures";
+import { addressField, openApp, planFor, submitButton } from "./support/form";
 
 /**
  * The layout, at every size the product claims to support.
@@ -76,7 +74,7 @@ async function mapBox(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await stubApi(page);
-  await page.goto("/");
+  await openApp(page);
 });
 
 test("the map is drawn at a usable size", async ({ page }) => {
@@ -100,27 +98,43 @@ test("the map and the panel are both on screen at once", async ({ page }) => {
   // The panel may float over the map on a wide screen, but it must never be
   // the only thing visible: on a phone the map takes the top of the column, and
   // above `sm` the panel is capped well short of the full width.
-  const covered = Math.max(
-    0,
-    Math.min(map.x + map.width, panel!.x + panel!.width) - Math.max(map.x, panel!.x),
-  ) * Math.max(
-    0,
-    Math.min(map.y + map.height, panel!.y + panel!.height) - Math.max(map.y, panel!.y),
-  );
+  const covered =
+    Math.max(0, Math.min(map.x + map.width, panel!.x + panel!.width) - Math.max(map.x, panel!.x)) *
+    Math.max(0, Math.min(map.y + map.height, panel!.y + panel!.height) - Math.max(map.y, panel!.y));
   expect(covered).toBeLessThan(map.width * map.height * 0.9);
 });
 
-test("the address field and the submit button are reachable and on screen", async ({ page }) => {
+test("the address field and the status line are reachable and on screen", async ({ page }) => {
+  // What has to be on screen at every size is the *input* and the sentence that
+  // tells the user what the form is doing with it. The submit button is
+  // `sr-only` now — asserting it is visible would be asserting the opposite of
+  // the design, and asserting a one-pixel clipped box sits inside the viewport
+  // would prove nothing about the layout either.
   const address = page.getByLabel(/Start address/i);
   await address.scrollIntoViewIfNeeded();
   await expect(address).toBeVisible();
   await expectWithinViewport(page, address, "the address input");
 
-  const submit = page.getByRole("button", { name: /find me a walk/i });
+  // The form acts on its own, so this line is the only feedback that it is
+  // working. Off screen it is not feedback.
+  const status = page.getByText("Walks update as you type.");
+  await status.scrollIntoViewIfNeeded();
+  await expect(status).toBeVisible();
+  await expectWithinViewport(page, status, "the status line");
+});
+
+test("the hidden submit button becomes visible when a keyboard reaches it", async ({ page }) => {
+  // `focus:not-sr-only` is what keeps the hidden button honest: a sighted
+  // keyboard user who tabs onto it must see what they have landed on rather
+  // than interacting with something invisible. That has to hold at 320 px as
+  // much as at 2560, which is why it is asserted here rather than once.
+  const submit = submitButton(page);
+  await expect(submit).toBeEnabled();
+
+  await submit.focus();
   await submit.scrollIntoViewIfNeeded();
   await expect(submit).toBeVisible();
-  await expect(submit).toBeEnabled();
-  await expectWithinViewport(page, submit, "the submit button");
+  await expectWithinViewport(page, submit, "the focused submit button");
 });
 
 test("the page does not scroll sideways", async ({ page }) => {
@@ -146,13 +160,8 @@ test("the legend stays clear of the panel and of the edges", async ({ page }) =>
 });
 
 test("planning a walk leaves the results reachable and the map intact", async ({ page }) => {
-  const address = page.getByLabel(/Start address/i);
-  await address.scrollIntoViewIfNeeded();
-  await address.fill("100 N Main St, Morton, IL");
-
-  const submit = page.getByRole("button", { name: /find me a walk/i });
-  await submit.scrollIntoViewIfNeeded();
-  await submit.click();
+  await addressField(page).scrollIntoViewIfNeeded();
+  await planFor(page, "100 N Main St, Morton, IL");
 
   const results = page.getByLabel("Suggested walks");
   await results.scrollIntoViewIfNeeded();

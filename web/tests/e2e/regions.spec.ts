@@ -2,11 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 // Stubbed, so these describe the bundle rather than a deployment. Pointed at a
 // real API they would intercept the very endpoints under test.
-test.skip(
-  Boolean(process.env.E2E_BASE_URL),
-  "stubbed specs run against the local export only",
-);
+test.skip(Boolean(process.env.E2E_BASE_URL), "stubbed specs run against the local export only");
 import { API_HOST, PLAN_RESPONSE, stubApi } from "./fixtures";
+import { openApp, planFor } from "./support/form";
 
 /**
  * Building coverage on demand.
@@ -88,7 +86,9 @@ async function stubBuild(page: Page, states: Record<string, unknown>[]) {
     return route.fulfill({
       status: 202,
       contentType: "application/json",
-      body: JSON.stringify(status({ state: "pending", progress: 0.05, stage: "queued", message: "Queued." })),
+      body: JSON.stringify(
+        status({ state: "pending", progress: 0.05, stage: "queued", message: "Queued." }),
+      ),
     });
   });
 
@@ -116,10 +116,14 @@ async function stubBuild(page: Page, states: Record<string, unknown>[]) {
 
 /** Type the uncovered address and ask for a walk. */
 async function planCupertino(page: Page) {
-  await page.goto("/");
+  await openApp(page);
   await expect(page.getByLabel("Suggested walks")).toBeVisible();
-  await page.getByLabel(/Start address/i).fill(PLACE);
-  await page.getByRole("button", { name: /find me a walk/i }).click();
+  // `planFor`, never "type and then submit". A submit leaves the debounce armed
+  // and it fires a second plan a beat later — and every submit calls
+  // `cancelRegion()`, so that straggler would abandon the build this whole spec
+  // is about, several hundred milliseconds after the test thought it had
+  // started one.
+  await planFor(page, PLACE);
 }
 
 test("an uncovered address is built on demand, then planned automatically", async ({ page }) => {
@@ -182,7 +186,11 @@ test("a build somebody else started is joined, not restarted", async ({ page }) 
   await page.route(`${API_HOST}/v1/plan`, (route) => {
     const body = JSON.parse(route.request().postData() ?? "{}");
     if (!String(body.address ?? "").includes("Cupertino")) {
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(PLAN_RESPONSE) });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(PLAN_RESPONSE),
+      });
     }
     if (calls.polls.length === 0) {
       return route.fulfill({
@@ -197,7 +205,11 @@ test("a build somebody else started is joined, not restarted", async ({ page }) 
         }),
       });
     }
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CUPERTINO_PLAN) });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(CUPERTINO_PLAN),
+    });
   });
 
   await planCupertino(page);

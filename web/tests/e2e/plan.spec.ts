@@ -3,15 +3,18 @@ import { expect, test } from "@playwright/test";
 // These stub the network, so they describe the bundle's behaviour rather than a
 // deployment's. Running them against E2E_BASE_URL would intercept the real API
 // and prove nothing; `deployed.spec.ts` covers that case instead.
-test.skip(
-  Boolean(process.env.E2E_BASE_URL),
-  "stubbed specs run against the local export only",
-);
-import { API_HOST, PLAN_RESPONSE, stubApi } from "./fixtures";
+test.skip(Boolean(process.env.E2E_BASE_URL), "stubbed specs run against the local export only");
+import { PLAN_RESPONSE, stubApi } from "./fixtures";
+import { openApp, planAfter, planFor, planPayload, submitButton } from "./support/form";
 
 /**
  * The full journey through the real bundle: fill the form, get suggestions,
  * expand one, see it drawn on the map.
+ *
+ * Note what is *absent* from most of these now. The app plans its default
+ * address on load, so a spec that only needs results on screen no longer types
+ * anything at all — `openApp` waits for the opening plan and that is the whole
+ * setup. Typing survives only where the spec is about what was typed.
  */
 
 test.beforeEach(async ({ page }) => {
@@ -22,7 +25,7 @@ test("opens with a plan already run, not an empty form", async ({ page }) => {
   // The app plans its default address on load. An empty first screen would ask
   // the user to do work before they can tell whether the product is any good,
   // so the opening state is a real route with real numbers.
-  await page.goto("/");
+  await openApp(page);
   await expect(page.getByRole("heading", { name: /StepWise/i })).toBeVisible();
 
   const address = page.getByLabel(/Start address/i);
@@ -30,20 +33,36 @@ test("opens with a plan already run, not an empty form", async ({ page }) => {
   await expect(address).not.toHaveValue("");
 
   await expect(page.getByLabel("Suggested walks")).toBeVisible();
-  await expect(page.getByRole("button", { name: /find me a walk/i })).toBeEnabled();
+  // Nobody has to press anything, and the form says so.
+  await expect(page.getByText("Walks update as you type.")).toBeVisible();
+});
+
+test("the submit button is present for Enter and for assistive technology", async ({ page }) => {
+  // It is `sr-only`, not absent. HTML only performs implicit submission when a
+  // form has a submit button or exactly one field, so deleting it would break
+  // Enter in every browser — and a form that acts on a timer owes a
+  // screen-reader user a way to say "now".
+  await openApp(page);
+
+  const submit = submitButton(page);
+  await expect(submit).toBeAttached();
+  await expect(submit).toBeEnabled();
+
+  // Hidden until it has focus, and plainly visible once it does.
+  await submit.focus();
+  await expect(submit).toBeVisible();
+  await expect(submit).toBeFocused();
 });
 
 test("plans a walk and shows ranked suggestions", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("100 N Main St, Morton, IL");
+  await openApp(page);
 
-  const request = page.waitForRequest(`${API_HOST}/v1/plan`);
-  await page.getByRole("button", { name: /find me a walk/i }).click();
+  const request = await planFor(page, "100 N Main St, Morton, IL");
 
   // The request must carry the profile the form collected.
-  const payload = JSON.parse((await request).postData() ?? "{}");
+  const payload = planPayload(request);
   expect(payload.address).toBe("100 N Main St, Morton, IL");
-  expect(payload.profile.sex).toBe("male");
+  expect(payload.profile?.sex).toBe("male");
   expect(payload.minutes).toBe(30);
 
   const list = page.getByLabel("Suggested walks");
@@ -57,9 +76,7 @@ test("plans a walk and shows ranked suggestions", async ({ page }) => {
 });
 
 test("expands a route to reveal its health detail", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("100 N Main St");
-  await page.getByRole("button", { name: /find me a walk/i }).click();
+  await openApp(page);
 
   const cards = page.getByLabel("Suggested walks").getByRole("button");
   await expect(cards.first()).toHaveAttribute("aria-expanded", "true");
@@ -74,9 +91,7 @@ test("expands a route to reveal its health detail", async ({ page }) => {
 });
 
 test("renders the route on the map canvas", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("100 N Main St");
-  await page.getByRole("button", { name: /find me a walk/i }).click();
+  await openApp(page);
   await expect(page.getByLabel("Suggested walks")).toBeVisible();
 
   // MapLibre draws into a WebGL canvas, so the assertion is that the canvas
@@ -88,18 +103,18 @@ test("renders the route on the map canvas", async ({ page }) => {
 });
 
 test("toggling a preference changes what is requested", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("100 N Main St");
-  await page.getByRole("button", { name: "Avoid hills" }).click();
+  await openApp(page);
 
-  const request = page.waitForRequest(`${API_HOST}/v1/plan`);
-  await page.getByRole("button", { name: /find me a walk/i }).click();
-  const payload = JSON.parse((await request).postData() ?? "{}");
-  expect(payload.preferences.avoid_hills).toBe(true);
+  // A chip is an "adjusting" change rather than free text, so it waits out the
+  // shorter delay — and then plans without anyone pressing anything.
+  const request = await planAfter(page, () =>
+    page.getByRole("button", { name: "Avoid hills" }).click(),
+  );
+  expect(planPayload(request).preferences?.avoid_hills).toBe(true);
 });
 
 test("shows the data attribution", async ({ page }) => {
-  await page.goto("/");
+  await openApp(page);
   // Scoped to the footer: the medical disclaimer also appears in each route's
   // caveat list once results are on screen, and an unscoped match resolves to
   // several elements.

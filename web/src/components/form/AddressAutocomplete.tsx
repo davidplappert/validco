@@ -196,7 +196,9 @@ export default function AddressAutocomplete({
         }}
         role="combobox"
         aria-expanded={open}
-        aria-controls={listId}
+        // Only while the listbox exists. Pointing at an absent id is a
+        // dangling IDREF, and a screen reader resolving it finds nothing.
+        aria-controls={open ? listId : undefined}
         aria-autocomplete="list"
         aria-haspopup="listbox"
         aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}

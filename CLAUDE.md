@@ -37,7 +37,7 @@ Assignment site: https://valid-takehome-demo-mauve.vercel.app (password `CUGVvq1
 | **Very OOP; heavy models, thin controllers** | see *Architecture* |
 | **Component-heavy frontend** | ~30 components, none over ~120 lines |
 | **Inline docs on every method** | maintain this — every method has a docstring |
-| **Thorough tests both sides, wired to CI/CD** | 582 tests |
+| **Thorough tests both sides, wired to CI/CD** | 698 tests |
 | **Secure: endpoints, data, IAM, pipelines** | see *Security* |
 | **No personal data in this public repo** | scrubbed; `tests/test_privacy.py` fails the build if it returns |
 | **Optimised page load and query times** | see *Performance* |
@@ -68,7 +68,7 @@ web/                   Next.js 15 static export + React 19 + Tailwind v4 + MapLi
   src/lib/             api.ts, types.ts, format.ts
   tests/               Vitest (components, hooks, lib) + Playwright (e2e)
 bootstrap/             One-time GitHub OIDC CloudFormation (already applied)
-tests/                 388 backend tests, all offline
+tests/                 431 backend tests, all offline
 openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```
 
@@ -77,7 +77,7 @@ openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```bash
 uv sync --all-groups                      # local env (Python 3.13)
 
-uv run pytest                             # 388 tests, ~7s, no network
+uv run pytest                             # 431 tests, ~9s, no network
 uv run ruff check api data infra tests
 uv run ruff format api data infra tests
 
@@ -86,8 +86,8 @@ cd web && npm run lint                    # ESLint 9 flat config (next/core-web-
 cd web && npm run lint:fix
 cd web && npm run format:check            # Prettier, 100 columns
 cd web && npm run format                  # rewrites; currently touches 30 files
-cd web && npm test                        # 86 Vitest tests
-cd web && npm run test:e2e                # 108 Playwright tests (needs `npm run build` first)
+cd web && npm test                        # 128 Vitest tests
+cd web && npm run test:e2e                # 139 Playwright tests (needs `npm run build` first)
 cd web && npm run test:all                # typecheck + unit + build + e2e
 cd web && npm run build                   # emits web/out/ for CDK to upload
 
@@ -381,15 +381,16 @@ accurate data, not a bug.
 
 ## Testing
 
-582 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
+698 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
 
-- 388 backend (physiology, models, health, services, http, api, infra, security,
+- 431 backend (physiology, models, health, services, http, api, infra, security,
   performance, container, geocode, openapi)
-- 86 Vitest (components, hooks, formatting, API client)
-- 108 Playwright: 33 specs on each of `chromium` and `mobile`, plus 42 more
-  across seven viewport-named projects (`phone-small` 320x568 through
-  `desktop-wide` 2560x1440) which run `responsive.spec.ts` only. All against a
-  local static export with the API stubbed.
+- 128 Vitest (components, hooks, formatting, API client)
+- 139 Playwright: 45 specs on each of `chromium` and `mobile` (40 run, the five
+  `deployed.spec.ts` ones skipped locally), plus 49 across seven viewport-named
+  projects (`phone-small` 320x568 through `desktop-wide` 2560x1440) which run
+  `responsive.spec.ts` only. All against a local static export with the API
+  stubbed. `--repeat-each=3` was run to confirm no flakes.
 
 Load-bearing properties, worth preserving:
 

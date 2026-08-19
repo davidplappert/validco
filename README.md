@@ -248,7 +248,7 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 
 ## Testing
 
-**582 tests**, wired into CI on every push and pull request.
+**698 tests**, wired into CI on every push and pull request.
 
 | Suite | Count | What it covers |
 |---|---:|---|

@@ -20,6 +20,10 @@ test.skip(!DEPLOYED, "set E2E_BASE_URL to run against a deployment");
 // A cold Lambda decoding several megabytes of graph arrays is slower than a
 // warm one, and this may well be the first request the container ever sees.
 test.setTimeout(90_000);
+import { openApp, planFor } from "./support/form";
+
+/** How long a real, possibly cold, request is allowed to take. */
+const COLD = 60_000;
 
 test("serves the app over HTTPS from CloudFront", async ({ page }) => {
   const response = await page.goto("/");
@@ -42,11 +46,10 @@ test("config.json carries a usable API URL", async ({ request }) => {
 });
 
 test("plans a real walk end to end", async ({ page }) => {
-  await page.goto("/");
-  await page
-    .getByLabel(/Start address/i)
-    .fill("100 N Main St, Morton, IL 61550");
-  await page.getByRole("button", { name: /find me a walk/i }).click();
+  // `COLD` everywhere below: nothing here is stubbed, so the first plan may be
+  // paying for a container that has never decoded the graph arrays before.
+  await openApp(page, { timeout: COLD });
+  await planFor(page, "100 N Main St, Morton, IL 61550", { timeout: COLD });
 
   const list = page.getByLabel("Suggested walks");
   await expect(list).toBeVisible({ timeout: 60_000 });
@@ -59,25 +62,16 @@ test("plans a real walk end to end", async ({ page }) => {
   // appears in each route's "via ..." list, and a loose regex matches several
   // elements at once, which Playwright treats as an error rather than a pass.
   await expect(page.getByText(/^\d+ North MAIN Street, \d{5}$/i)).toBeVisible();
-  await expect(
-    page.getByText(/Snapped \d+ m to the walking network/),
-  ).toBeVisible();
+  await expect(page.getByText(/Snapped \d+ m to the walking network/)).toBeVisible();
 });
 
 test("plans a walk in San Francisco too", async ({ page }) => {
-  await page.goto("/");
-  await page
-    .getByLabel(/Start address/i)
-    .fill("1000 California St, San Francisco");
-  await page.getByRole("button", { name: /find me a walk/i }).click();
-  await expect(page.getByLabel("Suggested walks")).toBeVisible({
-    timeout: 60_000,
-  });
+  await openApp(page, { timeout: COLD });
+  await planFor(page, "1000 California St, San Francisco", { timeout: COLD });
+  await expect(page.getByLabel("Suggested walks")).toBeVisible({ timeout: COLD });
 });
 
-test("offers to build an uncovered area rather than refusing it", async ({
-  page,
-}) => {
+test("offers to build an uncovered area rather than refusing it", async ({ page }) => {
   // This used to assert a planning error, and the change is the point: an
   // address outside the two bundled cities is no longer a dead end, it is an
   // offer to extract that area from Overture. The test is deliberately left
@@ -89,11 +83,8 @@ test("offers to build an uncovered area rather than refusing it", async ({
   // catalogue is enabled, which requires REGION_BUCKET in the Lambda's
   // environment. Deploy that without it and this test fails — which is how the
   // missing variable should have been caught the first time.
-  await page.goto("/");
-  await page
-    .getByLabel(/Start address/i)
-    .fill("10 Downing Street, London SW1A 2AA");
-  await page.getByRole("button", { name: /find me a walk/i }).click();
+  await openApp(page, { timeout: COLD });
+  await planFor(page, "10 Downing Street, London SW1A 2AA", { timeout: COLD });
 
   const offer = page.getByRole("alert", { name: "Coverage needed" });
   await expect(offer).toBeVisible({ timeout: 60_000 });
