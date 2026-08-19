@@ -61,12 +61,63 @@ class JsonFormatter(logging.Formatter):
         }
         for key, value in record.__dict__.items():
             if key not in _STANDARD and not key.startswith("_"):
-                payload[key] = _safe(value)
+                payload[key] = _safe(_redact(key, value))
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         if record.stack_info:
             payload["stack"] = record.stack_info
         return json.dumps(payload, default=str, separators=(",", ":"))
+
+
+#: Field names whose values are personal and are redacted from application
+#: logs. The address is someone's home and the rest is health data; neither
+#: belongs in a log aggregator just because the log level is DEBUG.
+#:
+#: Note this only governs *our* structured logs. When API Gateway's
+#: `dataTraceEnabled` is on — it is, by explicit request — the gateway writes
+#: raw request bodies to its own log group and this redaction cannot reach
+#: them. The stack exposes `trace_request_bodies=False` to turn that off, at
+#: which point these logs become the only record and the redaction is the whole
+#: privacy story.
+PII_FIELDS = frozenset(
+    {
+        "address",
+        "label",
+        "street",
+        "number",
+        "weight_kg",
+        "weight_lb",
+        "age",
+        "age_years",
+        "height_cm",
+        "lat",
+        "lon",
+        "q",
+    }
+)
+
+#: Set LOG_PII=1 to disable redaction while debugging a specific report. Off by
+#: default so the safe behaviour is the one you get without thinking about it.
+_REDACT = os.environ.get("LOG_PII", "").lower() not in ("1", "true", "yes")
+
+REDACTED = "[redacted]"
+
+
+def _redact(key: str, value: Any) -> Any:
+    """Blank a personal field, keeping enough shape to debug with.
+
+    Numbers become a coarse bucket rather than disappearing, because "the
+    weight was in the 150-200 kg band" is usually all a diagnosis needs and is
+    not identifying on its own.
+    """
+    if not _REDACT or key not in PII_FIELDS:
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # Round hard: precise coordinates are identifying, a 0.1 degree cell is not.
+        if key in ("lat", "lon"):
+            return round(float(value), 1)
+        return f"~{round(float(value) / 25) * 25}"
+    return REDACTED
 
 
 def _safe(value: Any) -> Any:
@@ -76,7 +127,7 @@ def _safe(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_safe(v) for v in value][:50]
     if isinstance(value, dict):
-        return {str(k): _safe(v) for k, v in list(value.items())[:50]}
+        return {str(k): _safe(_redact(str(k), v)) for k, v in list(value.items())[:50]}
     return str(value)
 
 

@@ -19,6 +19,9 @@ data = [
 dev = [
     "pytest>=8.3.0",
     "ruff>=0.8.0",
+    # Used by tests/test_openapi.py to keep the published spec honest.
+    "pyyaml>=6.0",
+    "openapi-spec-validator>=0.7.1",
 ]
 
 [tool.ruff]
@@ -30,4 +33,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `api` for the runtime package, `infra` for the CDK stack the infra tests
+# synthesise. Both are source roots rather than installed packages.
 pythonpath = ["api", "infra"]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    "error::DeprecationWarning:stepwise.*",
+]

@@ -373,6 +373,11 @@ def pack_graph(builder: GraphBuilder, sampler: TerrainSampler, region: Region, o
     edge_u = array("I")
     edge_v = array("I")
     edge_len = array("f")
+    # Gradient in decipercent (rise/run * 1000), clamped to the range Minetti
+    # was fitted over. Precomputed here because the routing inner loop reads it
+    # millions of times per request, and deriving it there means two elevation
+    # lookups and a division per edge per traversal.
+    edge_grade_dpct = array("h")
     edge_surface = array("B")
     edge_flags = array("B")
     geom_start = array("I", [0])
@@ -390,9 +395,14 @@ def pack_graph(builder: GraphBuilder, sampler: TerrainSampler, region: Region, o
     ):
         if u not in remap or v not in remap:
             continue
-        edge_u.append(remap[u])
-        edge_v.append(remap[v])
+        nu, nv = remap[u], remap[v]
+        edge_u.append(nu)
+        edge_v.append(nv)
         edge_len.append(length)
+
+        rise_m = (node_ele_dm[nv] - node_ele_dm[nu]) / 10.0
+        grade = rise_m / length if length > 0 else 0.0
+        edge_grade_dpct.append(max(-450, min(450, int(round(grade * 1000.0)))))
         edge_surface.append(surface)
         edge_flags.append(flags)
         for lon, lat in geom:
@@ -442,6 +452,7 @@ def pack_graph(builder: GraphBuilder, sampler: TerrainSampler, region: Region, o
     writer.add("edge_u", "I", edge_u)
     writer.add("edge_v", "I", edge_v)
     writer.add("edge_len", "f", edge_len)
+    writer.add("edge_grade_dpct", "h", edge_grade_dpct)
     writer.add("edge_surface", "B", edge_surface)
     writer.add("edge_flags", "B", edge_flags)
     writer.add("edge_name", "I", name_ids)

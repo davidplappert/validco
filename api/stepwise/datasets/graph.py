@@ -53,6 +53,8 @@ class WalkGraph:
         self.edge_u = container.get("edge_u")
         self.edge_v = container.get("edge_v")
         self.edge_len = container.get("edge_len")
+        # Gradient in decipercent, baked at build time. See CostModel for why.
+        self.edge_grade_dpct = container.get("edge_grade_dpct")
         self.edge_surface = container.get("edge_surface")
         self.edge_flags = container.get("edge_flags")
         self.edge_name = container.get("edge_name")

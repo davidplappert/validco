@@ -2,7 +2,7 @@ name: ci
 
 # Runs on pull requests and on any branch that is not main. Deliberately has no
 # AWS permissions: `cdk synth` needs no credentials when the account and region
-# are supplied as context, so a PR can be fully validated — including that the
+# are supplied as context, so a PR is fully validated — including that the
 # CloudFormation template still builds — without handing a fork's workflow an
 # AWS identity.
 on:
@@ -18,60 +18,135 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python:
-    name: python
+  backend:
+    name: backend (${{ matrix.suite }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Split so a failure names the layer rather than "tests failed".
+        include:
+          - suite: unit
+            paths: tests/test_physiology.py tests/test_models.py tests/test_health.py tests/test_container.py tests/test_geocode.py tests/test_http.py
+          - suite: integration
+            paths: tests/test_services.py tests/test_api.py
+          - suite: infrastructure
+            paths: tests/test_infra.py
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install dependencies
-        run: uv sync --all-groups
-
-      - name: Lint
-        run: uv run ruff check api data infra tests
-
-      - name: Format check
-        run: uv run ruff format --check api data infra tests
+      - run: uv python install 3.13
+      - run: uv sync --all-groups
 
       - name: Tests
-        run: uv run pytest -q --tb=short
+        run: uv run pytest ${{ matrix.paths }} --tb=short
 
-      - name: CDK synth
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+      - run: uv python install 3.13
+      - run: uv sync --all-groups
+      - name: Ruff check
+        run: uv run ruff check api data infra tests
+      - name: Ruff format
+        run: uv run ruff format --check api data infra tests
+
+  synth:
+    name: cdk synth
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+      - run: uv python install 3.13
+      - run: uv sync --group infra
+      - run: npm install -g aws-cdk@2
+      - name: Synthesize the CloudFormation template
         env:
           CDK_DEFAULT_ACCOUNT: "000000000000"
           CDK_DEFAULT_REGION: us-east-1
-        run: |
-          npm install -g aws-cdk@2
-          uv run cdk synth --quiet --context envName=dev
+        run: uv run cdk synth --quiet --context envName=dev
 
-  web:
-    name: web
+  frontend:
+    name: frontend
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Install
-        working-directory: web
-        run: npm ci
-
+      - run: npm ci
       - name: Type check
-        working-directory: web
-        run: npx tsc --noEmit
-
-      - name: Build
-        working-directory: web
+        run: npm run typecheck
+      - name: Unit and component tests
+        run: npm run test -- --coverage
+      - name: Build the static export
         run: npm run build
+
+      - name: Upload the export for the e2e job
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-out
+          path: web/out
+          retention-days: 1
+
+  e2e:
+    name: e2e (${{ matrix.project }})
+    needs: frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, mobile]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # Reuse the export the frontend job already built rather than rebuilding.
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-out
+          path: web/out
+
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npx playwright test --project=${{ matrix.project }}
+
+      - name: Upload the report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: web/playwright-report
+          retention-days: 7

@@ -93,12 +93,20 @@ Resources:
             Version: "2012-10-17"
             Statement:
               # So the workflow can print the site and API URLs in its summary
-              # and smoke-test the deployment.
+              # and smoke-test the deployment. Scoped to this project's own
+              # stacks rather than "*": the role should not be able to read the
+              # templates or outputs of anything else in the account.
               - Effect: Allow
                 Action:
                   - cloudformation:DescribeStacks
                   - cloudformation:GetTemplate
-                  - cloudformation:ListStacks
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/stepwise-*/*
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/CDKToolkit/*
+              # ListStacks does not support resource-level permissions; it
+              # returns names and statuses only, no template or output content.
+              - Effect: Allow
+                Action: cloudformation:ListStacks
                 Resource: "*"
       Tags:
         - Key: project

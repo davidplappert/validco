@@ -48,5 +48,16 @@ FLAG_LABELS = {
     FLAG_INDOOR: "covered",
 }
 
-# Bumped whenever the artifact layout changes in a way the reader must know about.
-DATASET_VERSION = 1
+# Bumped whenever the artifact layout changes in a way the reader must know
+# about. v2 added `edge_grade_dpct`, the precomputed per-edge gradient.
+DATASET_VERSION = 2
+
+# Gradients are stored per edge as decipercent (rise/run * 1000) in an int16,
+# clamped to the range Minetti's curve was fitted over. This is also the index
+# space for the routing lookup tables, so the two definitions must agree.
+#
+# 0.1% resolution is finer than the ~10 m DEM the gradients came from, so the
+# quantisation introduces no error the underlying data did not already have.
+GRADE_SCALE = 1000.0
+GRADE_LIMIT_DPCT = 450
+GRADE_TABLE_SIZE = GRADE_LIMIT_DPCT * 2 + 1

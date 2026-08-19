@@ -1,0 +1,774 @@
+openapi: 3.1.0
+
+info:
+  title: StepWise API
+  version: "1.0.0"
+  summary: Walking routes scored for your body, built on Overture Maps open data.
+  description: |
+    StepWise turns a person and a time budget into walking routes, each scored for
+    that specific body: real elevation from a DEM, an honest duration, calories,
+    steps, and how much of the walk is on a footpath rather than in the roadway.
+
+    ## What makes it different
+
+    Most walking apps answer "how do I get from A to B". This one answers "I have
+    forty minutes, where should I walk" — the destination is an *output*, and the
+    route comes back to where it started.
+
+    ## Data
+
+    Everything comes from open data, baked into the deployment package at build
+    time. There is no database and no runtime dependency on a third party:
+
+    * **Overture Maps** (`transportation`) — the walking network, split at its
+      connectors into a routable graph.
+    * **Overture Maps** (`addresses`) — the geocoder's entire corpus. Your home
+      address is never sent to a third-party geocoding service.
+    * **Overture Maps** (`places`, `base/land_use`) — destinations worth walking
+      to, and green space.
+    * **USGS 3DEP** via AWS Terrain Tiles — elevation at every graph node.
+
+    ## The health model
+
+    Energy uses the gradient cost-of-transport curve from Minetti et al. (2002),
+    which — unlike the far more common ACSM walking equation — is defined for
+    *descent* as well as ascent. Resting metabolism is estimated separately with
+    Mifflin-St Jeor, which is validated across BMI classes; ACSM's flat
+    3.5 mL/kg/min term scales resting metabolism linearly with total mass and is
+    documented to overestimate expenditure substantially in people with obesity.
+
+    Every response carries its own caveats. Nothing here is medical advice.
+
+    ## Limits
+
+    Two regions are covered: San Francisco, CA and Peoria/Chillicothe, IL.
+    Requests outside them return `422` naming the covered areas.
+
+  contact:
+    name: David Plappert
+    url: https://github.com/davidplappert/validco
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: https://{restApiId}.execute-api.{region}.amazonaws.com/{stage}
+    description: AWS API Gateway REST API
+    variables:
+      restApiId:
+        default: replace-me
+        description: The REST API id from the CDK stack output `ApiUrl`.
+      region:
+        default: us-east-1
+      stage:
+        default: dev
+
+tags:
+  - name: system
+    description: Liveness and coverage.
+  - name: geocoding
+    description: Resolving addresses against the Overture address corpus.
+  - name: planning
+    description: The product — turning a person and a time budget into walks.
+
+paths:
+  /v1/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Liveness, plus which datasets are resident
+      description: |
+        Also reports which region datasets this Lambda container has decoded.
+        That makes cold-start behaviour observable rather than something to infer
+        from a latency graph.
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /v1/regions:
+    get:
+      tags: [system]
+      operationId: listRegions
+      summary: The covered areas and their dataset sizes
+      responses:
+        "200":
+          description: Every region the deployment can plan walks in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionsResponse"
+
+  /v1/geocode:
+    get:
+      tags: [geocoding]
+      operationId: geocode
+      summary: Resolve free text to a coordinate
+      description: |
+        Accepts a street address, a street name on its own, or a literal
+        `lat, lon` pair.
+
+        The matcher is deliberately forgiving. "100 N Main St" and "North
+        Main Street" fold to the same key, and a house number missing from the
+        corpus falls back to the nearest one on that street — placing you at 706
+        when you typed 708 is a far better answer than "not found". The `match`
+        field says which of those happened.
+
+        A miss returns `404` with street suggestions rather than a bare failure,
+        because the usual cause is a spelling or a missing suffix.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: The address, street, or `lat, lon` pair to resolve.
+          schema:
+            type: string
+            minLength: 1
+          examples:
+            fullAddress:
+              value: 100 N Main St, Chillicothe, IL 61523
+            abbreviated:
+              value: 1000 California St, San Francisco
+            streetOnly:
+              value: Market Street
+            coordinates:
+              value: 37.7749, -122.4194
+        - name: region
+          in: query
+          required: false
+          description: Restrict the search to one region. Omit to try each in turn.
+          schema:
+            $ref: "#/components/schemas/RegionKey"
+      responses:
+        "200":
+          description: The address resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeocodeHit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: No match in any region tried.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeocodeMiss"
+
+  /v1/places:
+    get:
+      tags: [planning]
+      operationId: listPlaces
+      summary: Named destinations near a point
+      description: |
+        The candidate destinations the planner aims walks at, filtered at build
+        time to categories that make a walk worth taking and grouped so the
+        reason for a suggestion can be explained.
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, minimum: -90, maximum: 90 }
+        - name: lon
+          in: query
+          required: true
+          schema: { type: number, minimum: -180, maximum: 180 }
+        - name: radius_m
+          in: query
+          required: false
+          schema: { type: number, minimum: 50, maximum: 5000, default: 1200 }
+        - name: region
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/RegionKey"
+      responses:
+        "200":
+          description: Destinations within the radius, nearest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [region, count, places]
+                properties:
+                  region:
+                    $ref: "#/components/schemas/RegionKey"
+                  count: { type: integer }
+                  places:
+                    type: array
+                    maxItems: 200
+                    items:
+                      $ref: "#/components/schemas/Destination"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /v1/plan:
+    post:
+      tags: [planning]
+      operationId: planWalk
+      summary: Find walks worth taking
+      description: |
+        Given a walker, a starting point and a time budget, returns a ranked and
+        de-duplicated set of loops.
+
+        The search is bounded by *predicted walking time*, not distance, using
+        the same physiology that produces the reported duration — so a
+        forty-minute request stays a forty-minute walk even on San Francisco's
+        hills, where a kilometre uphill is emphatically not a kilometre.
+
+        Start the walk from either `address` or an explicit `lat`/`lon` pair.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanRequest"
+            examples:
+              byAddress:
+                summary: A 30-minute flat walk from a home address
+                value:
+                  address: 100 N Main St, Chillicothe, IL 61523
+                  minutes: 30
+                  profile:
+                    sex: male
+                    age: 33
+                    weight_lb: 320
+                    height_ft: 6
+                    height_in: 0
+                  preferences:
+                    prefer_paths: true
+                    avoid_hills: true
+              byCoordinates:
+                summary: A 45-minute walk from a dropped pin, metric units
+                value:
+                  lat: 37.7913
+                  lon: -122.4089
+                  minutes: 45
+                  profile:
+                    sex: female
+                    age: 41
+                    weight_kg: 68
+                    height_cm: 165
+                  preferences:
+                    prefer_paths: true
+                    avoid_stairs: true
+                    prefer_green: true
+                  max_routes: 4
+      responses:
+        "200":
+          description: Ranked walks, best first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The address could not be resolved in any covered region.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+components:
+  responses:
+    BadRequest:
+      description: |
+        The request failed validation. The message names the offending field and
+        its accepted range.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            outOfRange:
+              value:
+                error: minutes must be between 5.0 and 240.0, got 9999.0
+                request_id: 8d1f7c6a-9e2b-4a11-b0c1-2f3a4b5c6d7e
+
+    Unprocessable:
+      description: |
+        Well-formed, but not actionable — a point outside every covered region,
+        or a start with no walkable network within 600 m. These are the honest
+        limits of the data rather than a caller mistake.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            outsideCoverage:
+              value:
+                error: those coordinates are outside every covered region
+                regions: [sf, pia]
+                request_id: 8d1f7c6a-9e2b-4a11-b0c1-2f3a4b5c6d7e
+
+  schemas:
+    RegionKey:
+      type: string
+      enum: [sf, pia]
+      description: |
+        `sf` — San Francisco, CA. `pia` — Peoria & Chillicothe, IL.
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: A message intended to be shown to the caller.
+        request_id:
+          type: string
+          description: |
+            Correlates with the Lambda's structured logs and its X-Ray trace.
+            Quote this when reporting a failure.
+        regions:
+          type: array
+          items: { $ref: "#/components/schemas/RegionKey" }
+        suggestions:
+          type: object
+          additionalProperties: true
+          description: Per-region street suggestions, when a geocode missed.
+
+    Health:
+      type: object
+      required: [ok, service, version]
+      properties:
+        ok: { type: boolean }
+        service: { type: string, const: stepwise }
+        version:
+          type: string
+          description: The git SHA the running Lambda was deployed from.
+        env: { type: string, example: dev }
+        regions_registered:
+          type: object
+          description: Which datasets this container has decoded so far.
+          additionalProperties:
+            type: object
+            properties:
+              graph: { type: boolean }
+              addresses: { type: boolean }
+              places: { type: boolean }
+              green: { type: boolean }
+
+    Region:
+      type: object
+      required: [key, label, center, bbox]
+      properties:
+        key: { $ref: "#/components/schemas/RegionKey" }
+        label: { type: string, example: San Francisco, CA }
+        center:
+          type: array
+          description: "[latitude, longitude] — where the map opens."
+          items: { type: number }
+          minItems: 2
+          maxItems: 2
+        bbox:
+          type: array
+          description: "[west, south, east, north] in degrees."
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+        n_nodes: { type: integer, example: 82889 }
+        n_edges: { type: integer, example: 123055 }
+        n_addresses: { type: integer, example: 394704 }
+        n_places: { type: integer, example: 3959 }
+
+    RegionsResponse:
+      type: object
+      required: [regions, default, attribution]
+      properties:
+        regions:
+          type: array
+          items: { $ref: "#/components/schemas/Region" }
+        default: { $ref: "#/components/schemas/RegionKey" }
+        attribution:
+          type: string
+          description: Required data attribution. Display this.
+
+    GeocodeHit:
+      type: object
+      required: [found, match, lat, lon, label]
+      properties:
+        found: { type: boolean, const: true }
+        match:
+          type: string
+          enum: [exact, nearest_number, street_midpoint, coordinates]
+          description: |
+            How the match was made. `nearest_number` means the exact house
+            number is absent from the corpus and the closest one was used.
+        lat: { type: number }
+        lon: { type: number }
+        label: { type: string, example: "708 North Main Street, 61523" }
+        region: { $ref: "#/components/schemas/RegionKey" }
+        address:
+          type: object
+          properties:
+            number: { type: string }
+            street: { type: string }
+            postcode: { type: string }
+            lat: { type: number }
+            lon: { type: number }
+            exact: { type: boolean }
+
+    GeocodeMiss:
+      type: object
+      required: [found]
+      properties:
+        found: { type: boolean, const: false }
+        query: { type: string }
+        tried:
+          type: array
+          description: One entry per region searched, each with its suggestions.
+          items:
+            type: object
+            properties:
+              found: { type: boolean }
+              reason: { type: string }
+              region: { $ref: "#/components/schemas/RegionKey" }
+              suggestions:
+                type: array
+                items: { type: string }
+
+    ProfileInput:
+      type: object
+      description: |
+        Weight is required in one unit or the other. Height is optional but
+        materially improves resting metabolism and step count; when omitted the
+        API substitutes a population mean and sets `height_assumed`.
+      required: [sex, age]
+      properties:
+        sex:
+          type: string
+          enum: [male, female, m, f, man, woman]
+          description: |
+            The gait-speed and body-composition norms this model draws on are
+            only published split by binary sex. That is a limitation of the
+            source literature, not a design choice.
+        age:
+          type: integer
+          minimum: 13
+          maximum: 110
+        weight_kg: { type: number, minimum: 25, maximum: 400 }
+        weight_lb: { type: number, minimum: 55, maximum: 880 }
+        height_cm: { type: number, minimum: 120, maximum: 230 }
+        height_ft: { type: number, minimum: 3, maximum: 8 }
+        height_in: { type: number, minimum: 0, maximum: 11.9 }
+      anyOf:
+        - required: [weight_kg]
+        - required: [weight_lb]
+
+    Preferences:
+      type: object
+      description: What the walker wants beyond a time budget.
+      properties:
+        prefer_paths:
+          type: boolean
+          default: true
+          description: Favour footpaths and park trails over the roadway.
+        avoid_hills:
+          type: boolean
+          default: false
+          description: Make gradient disproportionately expensive to route over.
+        avoid_stairs:
+          type: boolean
+          default: false
+          description: Exclude stepped sections outright. The one hard exclusion.
+        avoid_busy_roads:
+          type: boolean
+          default: true
+        prefer_green:
+          type: boolean
+          default: false
+          description: Favour routes passing near parks and gardens.
+
+    PlanRequest:
+      type: object
+      required: [profile]
+      properties:
+        address:
+          type: string
+          description: Free-text start address. Required unless lat/lon are given.
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lon: { type: number, minimum: -180, maximum: 180 }
+        region:
+          $ref: "#/components/schemas/RegionKey"
+        minutes:
+          type: number
+          minimum: 5
+          maximum: 240
+          default: 30
+          description: The time budget. Routes are generated to fit it.
+        max_routes:
+          type: integer
+          minimum: 1
+          maximum: 6
+          default: 4
+        profile: { $ref: "#/components/schemas/ProfileInput" }
+        preferences: { $ref: "#/components/schemas/Preferences" }
+      anyOf:
+        - required: [address]
+        - required: [lat, lon]
+
+    DerivedProfile:
+      type: object
+      description: What the API derived from the submitted profile.
+      properties:
+        sex: { type: string, enum: [male, female] }
+        age_years: { type: integer }
+        weight_kg: { type: number }
+        weight_lb: { type: number }
+        height_cm: { type: number }
+        height_assumed:
+          type: boolean
+          description: |
+            True when no height was supplied and a population mean was used.
+            Surface this — a guessed height must not read as a known one.
+        bmi: { type: number }
+        bmi_class:
+          type: string
+          example: obesity class III
+        body_fat_pct_est:
+          type: number
+          description: Deurenberg (1991) estimate. Population-level only.
+        fat_free_mass_kg: { type: number }
+        rmr_kcal_day:
+          type: number
+          description: Resting metabolic rate, Mifflin-St Jeor.
+        baseline_speed_ms: { type: number }
+        baseline_speed_mph: { type: number }
+        step_length_m: { type: number }
+
+    Effort:
+      type: object
+      description: The physiological cost of one walk.
+      properties:
+        distance_m: { type: number }
+        distance_mi: { type: number }
+        duration_s: { type: number }
+        duration_min: { type: number }
+        ascent_m: { type: number }
+        descent_m: { type: number }
+        ascent_ft: { type: number }
+        descent_ft: { type: number }
+        kcal_gross:
+          type: number
+          description: Including the calories you would burn at rest meanwhile.
+        kcal_net:
+          type: number
+          description: The extra cost of the walk itself, above resting.
+        steps: { type: integer }
+        mets:
+          type: number
+          description: |
+            Classic MET — kcal/hr per kg of body mass. Reported for
+            comparability with fitness trackers.
+        personal_mets:
+          type: number
+          description: |
+            Expenditure as a multiple of *this person's* resting rate, which is
+            what "how hard is this for me" actually means. Diverges from `mets`
+            at high BMI, and is the more honest figure.
+        intensity: { type: string, enum: [light, moderate, vigorous] }
+        avg_speed_ms: { type: number }
+        avg_speed_mph: { type: number }
+        avg_pace_min_per_mi: { type: number }
+        peak_grade_pct: { type: number }
+        climb_per_km_m: { type: number }
+        knee_load_peak_bw:
+          type: number
+          description: Peak knee compressive force, in multiples of body weight.
+
+    Health:
+      type: object
+      description: |
+        What the evidence supports about this walk, framed as progress toward
+        published guidelines rather than as invented claims.
+      properties:
+        guideline_progress:
+          type: object
+          description: WHO 2020 — 150-300 min/week of moderate-intensity activity.
+          properties:
+            who_weekly_moderate_min: { type: integer, const: 150 }
+            who_weekly_upper_min: { type: integer, const: 300 }
+            moderate_minutes: { type: number }
+            pct_of_weekly_target: { type: number }
+            met_minutes: { type: number }
+            counts_as_moderate:
+              type: boolean
+              description: False below 3 METs, where guideline credit cannot be claimed.
+        steps:
+          type: object
+          description: |
+            Ding et al., Lancet Public Health 2025 — benefits inflect around
+            7,000 steps/day.
+          properties:
+            walk_steps: { type: integer }
+            daily_target: { type: integer, const: 7000 }
+            pct_of_daily_target: { type: number }
+            context: { type: string }
+        energy:
+          type: object
+          properties:
+            kcal_gross: { type: number }
+            kcal_net_of_resting: { type: number }
+            note: { type: string }
+        joint_load:
+          type: object
+          properties:
+            peak_knee_force_bw: { type: number }
+            peak_knee_force_kg: { type: number }
+            peak_knee_force_lb: { type: number }
+            note: { type: string }
+        caveats:
+          type: array
+          description: |
+            The limits of these estimates. They travel with the numbers on
+            purpose — an API consumer cannot take the figures without them.
+          items: { type: string }
+
+    Suitability:
+      type: object
+      description: |
+        How well this route fits this walker. The score is never meaningful
+        without its notes; display both.
+      properties:
+        score: { type: integer, minimum: 0, maximum: 100 }
+        notes:
+          type: array
+          items: { type: string }
+
+    Destination:
+      type: object
+      properties:
+        name: { type: string, example: Alta Plaza Park }
+        category: { type: string, example: park }
+        group:
+          type: string
+          enum: [green, scenic, culture, refuel, active]
+        lat: { type: number }
+        lon: { type: number }
+        straight_line_m: { type: number }
+
+    RouteGeometry:
+      type: object
+      description: |
+        The full polyline, plus one run per surface class so the route can be
+        drawn colour-coded by what you will be walking on.
+      properties:
+        type: { type: string, const: LineString }
+        coordinates:
+          type: array
+          items:
+            type: array
+            items: { type: number }
+            minItems: 2
+            maxItems: 2
+        segments:
+          type: array
+          items:
+            type: object
+            properties:
+              surface:
+                type: string
+                enum: [path, sidewalk, crossing, road]
+              coordinates:
+                type: array
+                items:
+                  type: array
+                  items: { type: number }
+
+    Route:
+      type: object
+      properties:
+        id: { type: integer }
+        shape:
+          type: string
+          enum: [loop, out-and-back]
+          description: |
+            `out-and-back` means no distinct return exists — a genuine dead end
+            or a peninsula — so the route retraces its outbound leg.
+        score: { type: number }
+        destination:
+          oneOf:
+            - $ref: "#/components/schemas/Destination"
+            - type: "null"
+        effort: { $ref: "#/components/schemas/Effort" }
+        health: { $ref: "#/components/schemas/Health" }
+        suitability: { $ref: "#/components/schemas/Suitability" }
+        surface_breakdown_pct:
+          type: object
+          description: Percentage of the route's distance on each surface.
+          additionalProperties: { type: number }
+        surface_labels:
+          type: object
+          description: Display labels for each surface key.
+          additionalProperties: { type: string }
+        features:
+          type: array
+          description: Notable things on the route.
+          items:
+            type: string
+            enum: [stairs, busy road, unpaved, bridge, tunnel, covered]
+        streets:
+          type: array
+          maxItems: 25
+          items: { type: string }
+        geometry: { $ref: "#/components/schemas/RouteGeometry" }
+        elevation_profile:
+          type: array
+          description: Cumulative distance against elevation, thinned for plotting.
+          items:
+            type: object
+            properties:
+              m: { type: number }
+              ele: { type: number }
+
+    Origin:
+      type: object
+      properties:
+        lat: { type: number }
+        lon: { type: number }
+        snapped_lat: { type: number }
+        snapped_lon: { type: number }
+        snap_distance_m:
+          type: number
+          description: |
+            How far the start moved to reach the nearest mapped walking network.
+            Shown to the user rather than hidden.
+        label: { type: string }
+        match: { type: string }
+        address: { type: object, additionalProperties: true }
+
+    PlanResponse:
+      type: object
+      required: [region, origin, profile, routes]
+      properties:
+        region: { $ref: "#/components/schemas/RegionKey" }
+        origin: { $ref: "#/components/schemas/Origin" }
+        profile: { $ref: "#/components/schemas/DerivedProfile" }
+        request:
+          type: object
+          description: The interpreted request, echoed back.
+          properties:
+            minutes: { type: number }
+            preferences: { $ref: "#/components/schemas/Preferences" }
+        routes:
+          type: array
+          description: Ranked best-first and de-duplicated by edge overlap.
+          items: { $ref: "#/components/schemas/Route" }
+        timing_ms:
+          type: object
+          properties:
+            plan:
+              type: number
+              description: Server-side planning time, excluding cold-start load.
+        attribution:
+          type: string
+          description: Required data attribution. Display this.

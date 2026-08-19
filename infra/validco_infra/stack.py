@@ -84,16 +84,22 @@ class StepWiseStack(Stack):
         web_dir: str | None,
         app_version: str,
         log_level: str = "DEBUG",
+        trace_request_bodies: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         self.env_name = env_name
+        # Full request/response logging at the gateway was asked for explicitly.
+        # It is a knob rather than a constant because those bodies contain the
+        # user's address, age and weight: switch it off and the app-level logs
+        # (which redact those fields) become the only record.
+        self.trace_request_bodies = trace_request_bodies
 
         site_bucket = self._site_bucket()
         distribution = self._distribution(site_bucket)
         fn = self._function(api_dir, app_version, log_level, distribution)
-        api = self._rest_api(fn)
+        api = self._rest_api(fn, distribution)
 
         # The frontend is a static export, so it cannot be built with the API
         # URL baked in — the URL does not exist until this stack deploys. It
@@ -135,7 +141,77 @@ class StepWiseStack(Stack):
             auto_delete_objects=True,
         )
 
+    def _security_headers(self) -> cloudfront.ResponseHeadersPolicy:
+        """Security headers for every response CloudFront serves.
+
+        The Content-Security-Policy is the substantive one. Note the honest
+        limitation: a Next.js **static export** emits inline RSC payload scripts
+        and there is no server to mint a per-request nonce, so ``script-src``
+        has to allow ``'unsafe-inline'``. Hash-pinning them would work but the
+        hashes change on every build.
+
+        The protections that still matter a great deal are intact:
+
+        * ``connect-src`` restricts where the page may send data — so even a
+          successful script injection cannot exfiltrate the user's address and
+          health inputs to an attacker-controlled host.
+        * ``frame-ancestors 'none'`` prevents clickjacking.
+        * ``object-src 'none'`` and ``base-uri 'self'`` close two classic
+          injection vectors.
+
+        ``connect-src`` uses a wildcard for the API Gateway host rather than the
+        exact URL because the distribution is created before the API, and
+        referencing ``api.url`` here would make CloudFormation cycle through
+        distribution -> api -> function -> distribution.
+        """
+        csp = "; ".join(
+            [
+                "default-src 'self'",
+                # See the docstring: unavoidable for a nonce-less static export.
+                "script-src 'self' 'unsafe-inline'",
+                # React sets style attributes (progress bar widths).
+                "style-src 'self' 'unsafe-inline'",
+                # OSM raster tiles, plus the data:/blob: URIs MapLibre generates.
+                "img-src 'self' data: blob: https://tile.openstreetmap.org",
+                # MapLibre runs its tile workers from a blob URL.
+                "worker-src 'self' blob:",
+                f"connect-src 'self' https://*.execute-api.{Aws.REGION}.amazonaws.com",
+                "font-src 'self' data:",
+                "object-src 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+                "frame-ancestors 'none'",
+                "upgrade-insecure-requests",
+            ]
+        )
+
+        return cloudfront.ResponseHeadersPolicy(
+            self,
+            "SecurityHeaders",
+            comment=f"stepwise-{self.env_name} security headers",
+            security_headers_behavior=cloudfront.ResponseSecurityHeadersBehavior(
+                content_security_policy=cloudfront.ResponseHeadersContentSecurityPolicy(
+                    content_security_policy=csp, override=True
+                ),
+                content_type_options=cloudfront.ResponseHeadersContentTypeOptions(override=True),
+                frame_options=cloudfront.ResponseHeadersFrameOptions(
+                    frame_option=cloudfront.HeadersFrameOption.DENY, override=True
+                ),
+                referrer_policy=cloudfront.ResponseHeadersReferrerPolicy(
+                    referrer_policy=cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+                    override=True,
+                ),
+                strict_transport_security=cloudfront.ResponseHeadersStrictTransportSecurity(
+                    access_control_max_age=Duration.days(365),
+                    include_subdomains=True,
+                    preload=True,
+                    override=True,
+                ),
+            ),
+        )
+
     def _distribution(self, bucket: s3.Bucket) -> cloudfront.Distribution:
+        headers = self._security_headers()
         return cloudfront.Distribution(
             self,
             "SiteDistribution",
@@ -145,6 +221,7 @@ class StepWiseStack(Stack):
                 origin=origins.S3BucketOrigin.with_origin_access_control(bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                response_headers_policy=headers,
                 compress=True,
             ),
             additional_behaviors={
@@ -155,6 +232,7 @@ class StepWiseStack(Stack):
                     origin=origins.S3BucketOrigin.with_origin_access_control(bucket),
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    response_headers_policy=headers,
                     compress=True,
                 ),
             },
@@ -209,6 +287,11 @@ class StepWiseStack(Stack):
             # memory, and Dijkstra is CPU-bound. The graph itself is ~25 MB.
             memory_size=512,
             timeout=Duration.seconds(20),
+            # Caps blast radius in both directions: a traffic spike or a
+            # deliberate flood cannot scale this to the account limit, and it
+            # cannot run up a bill. API Gateway throttling is the first line;
+            # this is the backstop if that is ever raised.
+            reserved_concurrent_executions=25,
             tracing=lambda_.Tracing.ACTIVE,
             log_group=log_group,
             environment={
@@ -225,7 +308,9 @@ class StepWiseStack(Stack):
 
     # --- API --------------------------------------------------------------
 
-    def _rest_api(self, fn: lambda_.Function) -> apigw.LambdaRestApi:
+    def _rest_api(
+        self, fn: lambda_.Function, distribution: cloudfront.Distribution
+    ) -> apigw.LambdaRestApi:
         access_logs = logs.LogGroup(
             self,
             "ApiAccessLogs",
@@ -248,7 +333,7 @@ class StepWiseStack(Stack):
                 # only appropriate because the API carries no credentials and no
                 # persisted user data.
                 logging_level=apigw.MethodLoggingLevel.INFO,
-                data_trace_enabled=True,
+                data_trace_enabled=self.trace_request_bodies,
                 metrics_enabled=True,
                 access_log_destination=apigw.LogGroupLogDestination(access_logs),
                 access_log_format=apigw.AccessLogFormat.custom(_access_log_format()),
@@ -258,7 +343,12 @@ class StepWiseStack(Stack):
             # Preflight is answered by API Gateway itself, so an OPTIONS request
             # never spends a Lambda invocation.
             default_cors_preflight_options=apigw.CorsOptions(
-                allow_origins=apigw.Cors.ALL_ORIGINS,
+                # Only this deployment's own frontend, not "*". The API holds no
+                # credentials so a wildcard would not be exploitable, but the
+                # request body carries the user's home address and health
+                # inputs, and there is no reason for another origin to be able
+                # to make the browser send them.
+                allow_origins=[f"https://{distribution.distribution_domain_name}"],
                 allow_methods=["GET", "POST", "OPTIONS"],
                 allow_headers=["Content-Type"],
                 max_age=Duration.days(1),

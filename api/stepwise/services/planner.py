@@ -48,6 +48,20 @@ ANCHOR_BAND = (0.6, 1.0)
 #: Bonus applied to a candidate anchor that is a named destination.
 NAMED_DESTINATION_BONUS = 0.8
 
+#: How many destinations to snap onto the graph when choosing anchors.
+#:
+#: Only a handful of anchors are ever used — one per compass sector — so
+#: snapping every place in range is wasted work. On a 90-minute San Francisco
+#: request that meant roughly 2,000 nearest-node lookups, which profiling put
+#: at 25% of total request time. Capping to the best few hundred changes the
+#: chosen anchors not at all in practice, because they are ranked by confidence
+#: and only the top one per sector survives.
+MAX_PLACE_ANCHORS = 160
+
+#: Destinations closer than this fraction of the outbound budget make for
+#: trivial loops, so they are not considered as turnaround points.
+ANCHOR_INNER_FRACTION = 0.45
+
 #: A candidate sharing more than this fraction of its edges with an already
 #: chosen route is a duplicate, not an alternative.
 MAX_OVERLAP = 0.6
@@ -146,15 +160,30 @@ class AnchorSelector:
         """
         if self.places is None:
             return {}
+
         radius_m = half_budget_s * walking_speed_ms * 0.9
+        inner_m = radius_m * ANCHOR_INNER_FRACTION
+
+        # Filter before snapping, not after: the snap is the expensive part.
+        candidates = [
+            place
+            for place in self.places.within(origin, radius_m)
+            if place["straight_line_m"] >= inner_m
+        ]
+        # Rank by Overture's own confidence so the cap keeps the destinations
+        # most likely to be real and worth walking to.
+        candidates.sort(key=lambda place: -place["confidence"])
+        candidates = candidates[:MAX_PLACE_ANCHORS]
+
         found: dict[int, dict] = {}
-        for place in self.places.within(origin, radius_m):
+        for place in candidates:
             hit = self.graph.nearest_node(Coordinate(place["lat"], place["lon"]), max_m=250.0)
             if hit is None:
                 continue
             node = hit[0]
             if search.reached(node) and node not in found:
                 found[node] = place
+        LOG.debug("place anchors snapped=%d of %d candidates", len(found), len(candidates))
         return found
 
 

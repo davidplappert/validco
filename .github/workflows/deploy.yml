@@ -38,12 +38,13 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python
         run: uv python install 3.13
@@ -54,23 +55,55 @@ jobs:
       - name: Lint
         run: uv run ruff check api data infra tests
 
-      - name: Unit tests
-        run: uv run pytest -q
+      - name: Format check
+        run: uv run ruff format --check api data infra tests
+
+      # The whole backend suite, including the infrastructure assertions that
+      # pin X-Ray, CloudTrail and log retention.
+      - name: Backend tests
+        run: uv run pytest --tb=short
+
+  test-web:
+    name: test web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit and component tests
+        run: npm run test
+      - name: Build
+        run: npm run build
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: npx playwright test --project=chromium
 
   deploy:
     name: deploy dev
-    needs: test
+    needs: [test, test-web]
     runs-on: ubuntu-latest
     environment:
       name: dev
       url: ${{ steps.outputs.outputs.site_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python
         run: uv python install 3.13
@@ -167,6 +200,25 @@ jobs:
           echo "plan OK — $(jq -r '.routes | length' /tmp/plan.json) routes"
 
           curl -fsS -o /dev/null -w 'site HTTP %{http_code}\n' --max-time 20 "$SITE/"
+
+      # The same end-to-end suite the CI job runs against a local export, now
+      # pointed at the real CloudFront distribution and the real API. This is
+      # what proves the deployment works, not just that it succeeded.
+      - name: End-to-end against the deployment
+        working-directory: web
+        env:
+          E2E_BASE_URL: ${{ steps.outputs.outputs.site_url }}
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test --project=chromium tests/e2e/deployed.spec.ts
+
+      - name: Upload the e2e report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-deployed
+          path: web/playwright-report
+          retention-days: 7
 
       - name: Job summary
         if: always()

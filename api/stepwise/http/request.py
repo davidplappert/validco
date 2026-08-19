@@ -21,6 +21,12 @@ from .errors import BadRequest
 
 LOG = logging.getLogger(__name__)
 
+#: Largest request body we will parse, in bytes. Every legitimate request to
+#: this API is a few hundred bytes; API Gateway itself accepts up to 10 MB, and
+#: parsing that as JSON on every request is free CPU for an attacker. Rejecting
+#: early costs one integer comparison.
+MAX_BODY_BYTES = 64 * 1024
+
 
 class Request:
     """One HTTP request, normalised across API Gateway payload formats."""
@@ -68,8 +74,15 @@ class Request:
         """The request body as a dict, parsed once and cached."""
         if self._body is None:
             raw = self.event.get("body") or "{}"
+            if len(raw) > MAX_BODY_BYTES:
+                raise BadRequest(
+                    f"request body is too large ({len(raw)} bytes, limit {MAX_BODY_BYTES})"
+                )
             if self.event.get("isBase64Encoded"):
-                raw = base64.b64decode(raw).decode("utf-8")
+                try:
+                    raw = base64.b64decode(raw).decode("utf-8")
+                except (ValueError, UnicodeDecodeError) as exc:
+                    raise BadRequest(f"body is not valid base64 UTF-8: {exc}") from exc
             try:
                 parsed = json.loads(raw)
             except ValueError as exc:

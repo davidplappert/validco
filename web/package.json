@@ -2,12 +2,19 @@
   "name": "stepwise-web",
   "version": "0.1.0",
   "private": true,
-  "description": "StepWise frontend — Next.js static export, deployed to S3 + CloudFront",
+  "description": "StepWise frontend \u2014 Next.js static export, deployed to S3 + CloudFront",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "start": "npx serve out",
     "lint": "next lint",
-    "start": "npx serve out"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:all": "npm run typecheck && npm run test && npm run build && npm run test:e2e"
   },
   "dependencies": {
     "maplibre-gl": "^5.6.0",
@@ -16,12 +23,21 @@
     "react-dom": "19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.1.13",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.5",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.5",
+    "@vitest/coverage-v8": "^4.1.11",
+    "jsdom": "^30.0.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.13",
-    "typescript": "^5.7"
+    "typescript": "^5.7",
+    "vitest": "^4.1.11",
+    "serve": "^14.2.4"
   }
 }

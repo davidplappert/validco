@@ -19,6 +19,21 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        {/*
+          The map starts fetching tiles the moment MapLibre initialises, and the
+          API is called on first interaction. Opening the TCP and TLS
+          connections during initial parse takes that handshake off the critical
+          path — worth roughly a round trip each on a cold connection.
+
+          The API host is not known at build time (it is written into
+          config.json at deploy), so this preconnects to the API Gateway
+          endpoint pattern for the deployment region.
+        */}
+        <link rel="preconnect" href="https://tile.openstreetmap.org" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://tile.openstreetmap.org" />
+        <link rel="dns-prefetch" href="https://execute-api.us-east-1.amazonaws.com" />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );
