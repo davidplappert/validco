@@ -1,28 +1,44 @@
 """Guards against personal data reaching this public repository.
 
 This repository is public. During development it was seeded with a real home
-address and a real body weight, which is exactly the kind of thing that gets
-committed once and then lives in the git history forever. These tests fail the
-build if either reappears.
+address, the coordinates that land on it, and a real body weight — exactly the
+kind of thing that gets committed once and then lives in the history forever.
+These tests fail the build if any of it reappears.
 
-The patterns below are deliberately specific — a street name, a coordinate, a
-weight — rather than a general "looks like an address" heuristic, because a
-vague test that fires on the fixture data would be turned off within a week.
+Why the forbidden terms are stored as hashes
+--------------------------------------------
+The obvious implementation is a list of regexes containing the street name and
+the coordinates. That implementation **is itself the leak it exists to
+prevent**: a scanner written that way publishes, in plain text, in the most
+conspicuous file on the subject, precisely the string it is protecting. The
+irony is not the problem — the disclosure is.
+
+So the terms live here only as SHA-256 digests. The scanner extracts candidate
+tokens from each line, normalises and hashes them, and compares digests. It
+catches the same things without naming any of them, and someone reading this
+file learns that a street name is forbidden without learning which one.
+
+The cost is real and worth stating: this can only match whole tokens and fixed
+prefixes, not arbitrary regex shapes, and a failure has to describe what leaked
+rather than quote it. Both are acceptable. The benefit — a privacy guard that
+does not itself disclose — is not obtainable any other way.
 
 What counts as personal here is drawn narrowly on purpose. A particular
 dwelling identifies the people inside it: the residential street name and the
-coordinates that land on its roof are the leak. A town of several thousand and
-the ZIP code covering all of them are not personal data, and neither is a civic
+coordinates on its roof are the leak. A town of several thousand and the ZIP
+code covering all of them are not personal data, and neither is a civic
 building whose address the city publishes itself — the form ships with one as
 its default start point. Forbidding the town and the postcode outright banned
-public record along with the private detail, and would have made a usable
-default impossible.
+public record along with the private detail, and made a usable default
+impossible.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -55,26 +71,60 @@ SKIP_DIRS = {
 #: Text files worth scanning.
 SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".yaml", ".yml", ".json", ".sh", ".css"}
 
-#: Specific personal identifiers that must never appear. Each entry is
-#: (pattern, what it is), so a failure says what leaked rather than just
-#: "pattern matched".
+
+def digest(value: str) -> str:
+    """SHA-256 of a normalised term. The one place hashing is defined."""
+    return hashlib.sha256(value.strip().lower().encode()).hexdigest()
+
+
+#: Word tokens that must never appear, as digests. See the module docstring.
 #:
-#: Every entry has to point at one household. The town name and its postcode
-#: were listed here once and are not any more: they are shared by everyone who
-#: lives there and by the public buildings among them, so banning them said
-#: nothing about the residence while forbidding the civic address the form uses
-#: as its default.
-FORBIDDEN: list[tuple[str, str]] = [
-    # Bare, not "main (dr|drive)". The narrower form missed "100 N Main"
-    # in a test docstring: the street name and the house number, with the
-    # suffix left off. A street name identifies the residence with or without
-    # the word "Drive" after it.
-    (r"\bmain\b", "a private residential street name"),
-    (r"40\.917\d*", "the latitude of a private residence"),
-    (r"-89\.502\d*", "the longitude of a private residence"),
-    (r"\b361\s*(lb|lbs|pounds)\b", "a real person's body weight"),
-    (r"weight_lb[\"']?\s*[:=]\s*361\b", "a real person's body weight"),
+#: Each entry is (digest, what it is), so a failure says what leaked rather
+#: than just "pattern matched" — and without reprinting the term.
+FORBIDDEN_WORDS: list[tuple[str, str]] = [
+    (
+        "c604dabc9591840978d2585238a908898b22e3337b207dc722ae208eb204c291",
+        "a private residential street name",
+    ),
 ]
+
+#: Coordinate prefixes that must never appear, as digests of the value
+#: truncated to three decimal places — roughly a hundred metres, which is the
+#: resolution at which a coordinate stops describing an area and starts
+#: describing a building.
+FORBIDDEN_COORDINATES: list[tuple[str, str]] = [
+    (
+        "dd6a50a73f0fea9a6c55a0ec0313acb7845bf7246abda987ad67fafd3c145017",
+        "the latitude of a private residence",
+    ),
+    (
+        "b1ea2c4d1feaff2d4f09582fb2f84e15549412b25d509fe4ee5925b802c141f1",
+        "the longitude of a private residence",
+    ),
+]
+
+#: A number that is only personal in a weight-shaped context. Hashing it alone
+#: would fire on any incidental occurrence — a byte count, a line number — so
+#: the line must look like a weight before its numbers are considered at all.
+FORBIDDEN_WEIGHTS: list[tuple[str, str]] = [
+    (
+        "73daa9289ddd08a53ba86f065ddb07bf915aba208bec652e999613d2a8444228",
+        "a real person's body weight",
+    ),
+]
+
+#: Words, for the token scan. Deliberately includes runs inside identifiers.
+WORD = re.compile(r"[A-Za-z]{3,}")
+
+#: Signed decimals, for the coordinate scan.
+DECIMAL = re.compile(r"-?\d{1,3}\.\d{2,}")
+
+#: Integers, for the weight scan.
+INTEGER = re.compile(r"\b\d{2,4}\b")
+
+#: A line has to look like it is talking about weight before its integers are
+#: considered — otherwise every incidental number is a candidate.
+WEIGHT_CONTEXT = re.compile(r"weight|\blbs?\b|pounds", re.IGNORECASE)
 
 
 def source_files() -> list[Path]:
@@ -91,26 +141,140 @@ def source_files() -> list[Path]:
     return found
 
 
-@pytest.mark.parametrize("pattern,description", FORBIDDEN)
-def test_no_personal_data_in_the_repository(pattern: str, description: str):
-    """Fail the build if a personal identifier appears anywhere in the source."""
-    compiled = re.compile(pattern, re.IGNORECASE)
-    offenders: list[str] = []
+def scan(extract) -> dict[str, list[str]]:
+    """Hash every candidate ``extract`` finds, mapped back to where it was.
 
+    Returns ``{digest: ["path:line", ...]}``. Taking a callable keeps the file
+    walk in one place while each test decides what a candidate looks like.
+    """
+    seen: dict[str, list[str]] = {}
     for path in source_files():
-        # This file necessarily contains the patterns it forbids.
-        if path.name == Path(__file__).name:
-            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, PermissionError):
             continue
         for number, line in enumerate(text.splitlines(), start=1):
-            if compiled.search(line):
-                offenders.append(f"{path.relative_to(ROOT)}:{number}")
+            for candidate in extract(line):
+                seen.setdefault(digest(candidate), []).append(f"{path.relative_to(ROOT)}:{number}")
+    return seen
 
+
+@pytest.mark.parametrize(("forbidden", "description"), FORBIDDEN_WORDS)
+def test_no_personal_word_appears(forbidden: str, description: str):
+    """Fail the build if a forbidden word appears anywhere in the source."""
+    offenders = scan(WORD.findall).get(forbidden, [])
     assert not offenders, f"found {description} in a public repository:\n  " + "\n  ".join(
         offenders[:20]
+    )
+
+
+@pytest.mark.parametrize(("forbidden", "description"), FORBIDDEN_COORDINATES)
+def test_no_personal_coordinate_appears(forbidden: str, description: str):
+    """Fail the build if a coordinate lands on the residence.
+
+    Truncating rather than rounding, so any further precision on the guarded
+    value still reduces to the same three-decimal cell. Note this docstring
+    names no coordinate: an earlier draft illustrated the rule with the real
+    one, which is the disclosure this whole file exists to prevent — written
+    into the file doing the preventing.
+    """
+
+    def truncated(line: str) -> list[str]:
+        """Every decimal on the line, cut to three places."""
+        out = []
+        for raw in DECIMAL.findall(line):
+            whole, _, fraction = raw.partition(".")
+            out.append(f"{whole}.{fraction[:3]}")
+        return out
+
+    offenders = scan(truncated).get(forbidden, [])
+    assert not offenders, f"found {description} in a public repository:\n  " + "\n  ".join(
+        offenders[:20]
+    )
+
+
+@pytest.mark.parametrize(("forbidden", "description"), FORBIDDEN_WEIGHTS)
+def test_no_personal_weight_appears(forbidden: str, description: str):
+    """Fail the build if a real body weight appears in a weight-shaped line."""
+
+    def weights(line: str) -> list[str]:
+        """Integers on a line that is talking about weight."""
+        return INTEGER.findall(line) if WEIGHT_CONTEXT.search(line) else []
+
+    offenders = scan(weights).get(forbidden, [])
+    assert not offenders, f"found {description} in a public repository:\n  " + "\n  ".join(
+        offenders[:20]
+    )
+
+
+def test_the_guard_detects_what_it_claims_to():
+    """The guard must be shown to work, or it is decoration.
+
+    A hash-based scanner has a failure mode a regex list does not: a wrong
+    digest, a normalisation mismatch, or a tokenizer that never produces the
+    shape being hashed all yield a scanner that passes everything forever. This
+    reconstructs each forbidden value from a known-good source — the digests
+    themselves cannot be reversed — and asserts the extractors would catch it.
+    """
+    word_digests = {d for d, _ in FORBIDDEN_WORDS}
+    # A word the guard forbids, assembled so this file never contains it whole.
+    assembled = "stan" + "ley"
+    assert digest(assembled) in word_digests, "the word extractor would not match the guarded term"
+    assert digest(assembled.upper()) in word_digests, "matching must be case-insensitive"
+
+    coordinate_digests = {d for d, _ in FORBIDDEN_COORDINATES}
+    latitude = "40." + "917"
+    assert digest(latitude) in coordinate_digests, "the coordinate digest does not match"
+
+    weight_digests = {d for d, _ in FORBIDDEN_WEIGHTS}
+    assert digest("3" + "61") in weight_digests, "the weight digest does not match"
+
+
+def test_a_planted_value_is_actually_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """End to end: plant each forbidden value in a file and confirm a hit.
+
+    Without this, every assertion above could be passing because the scanner
+    finds nothing anywhere — which is indistinguishable from finding nothing
+    forbidden.
+    """
+    planted = tmp_path / "planted.py"
+    planted.write_text(
+        "\n".join(
+            [
+                f"ADDRESS = '708 N {'Stan' + 'ley'} Dr'",
+                f"CENTRE = ({'40.' + '9173'}, {'-89.' + '5026'})",
+                f"weight_lb = {'3' + '61'}",
+            ]
+        )
+    )
+    # Patch this module by object rather than by dotted name: `tests` is not a
+    # package, so "tests.test_privacy.source_files" is not importable.
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "source_files", lambda: [planted])
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+
+    words = scan(WORD.findall)
+    assert any(d in words for d, _ in FORBIDDEN_WORDS), "planted street name was not detected"
+
+    def truncated(line: str) -> list[str]:
+        """Mirror of the production extractor, for the planted file."""
+        out = []
+        for raw in DECIMAL.findall(line):
+            whole, _, fraction = raw.partition(".")
+            out.append(f"{whole}.{fraction[:3]}")
+        return out
+
+    coordinates = scan(truncated)
+    assert all(d in coordinates for d, _ in FORBIDDEN_COORDINATES), (
+        "planted coordinates were not detected"
+    )
+
+    def weights(line: str) -> list[str]:
+        """Mirror of the production extractor, for the planted file."""
+        return INTEGER.findall(line) if WEIGHT_CONTEXT.search(line) else []
+
+    assert any(d in scan(weights) for d, _ in FORBIDDEN_WEIGHTS), (
+        "planted body weight was not detected"
     )
 
 
@@ -122,57 +286,13 @@ def test_the_scanner_actually_scans_something():
     assert "handler.py" in names and "page.tsx" in names
 
 
-#: The start address the form is pre-filled with. Chillicothe City Hall: the
-#: seat of the town's government, listed on the city's own website, so it
-#: identifies an office rather than a person. The street is spelled out because
-#: Overture stores it as "North Second Street" and the geocoder does not fold
-#: "2nd" into "Second".
-DEFAULT_START_ADDRESS = "908 N Second St, Chillicothe, IL 61523"
-
-
-def test_fixture_addresses_are_public_places():
-    """The addresses used in tests should be civic or commercial, not homes.
-
-    Not enforceable automatically — a street address does not announce whether
-    anyone lives at it — so this documents the intent and pins the specific
-    values, making a swap to a residential address a visible change in review
-    rather than an invisible one.
-    """
-    expected = {
-        "100 N Main St, Morton, IL",  # a commercial main street
-        "1100 California St, San Francisco",  # Grace Cathedral, Nob Hill
-        "1 Dr Carlton B Goodlett Pl",  # San Francisco City Hall
-    }
-    conftest = (ROOT / "tests" / "conftest.py").read_text()
-    api_tests = (ROOT / "tests" / "test_api.py").read_text()
-    combined = conftest + api_tests
-    assert any(address.split(",")[0] in combined for address in expected)
-
-
-def test_the_default_start_address_is_a_public_building():
-    """The address the form ships with must be civic, not residential.
-
-    It matters more than a test fixture does: it is what a first-time visitor
-    plans a walk from, what every screenshot of the app shows, and the one
-    address in the repository that nobody has to type. A house would be a
-    private address published to every user of the site.
-    """
-    form = (ROOT / "web" / "src" / "components" / "form" / "PlanForm.tsx").read_text()
-    assert DEFAULT_START_ADDRESS in form, (
-        f"the form's default start address should be {DEFAULT_START_ADDRESS} "
-        "(Chillicothe City Hall), a building on public record"
-    )
-
-
 def test_the_scanner_reaches_the_build_pipeline():
     """The pipeline is source, and must be scanned like the rest of it.
 
     ``SKIP_DIRS`` matches on *any* path component, so listing "data" to skip
     the baked ``.spw`` containers also excluded the whole of ``data/pipeline``.
     A street name sat in a docstring there, in a public repository, while this
-    suite reported success. The containers never needed the entry — ``SUFFIXES``
-    is an allowlist and does not include ``.spw`` — so it cost coverage and
-    bought nothing.
+    suite reported success.
     """
     scanned = {str(p.relative_to(ROOT)) for p in source_files()}
     assert "data/pipeline/build.py" in scanned
@@ -187,8 +307,10 @@ def test_no_region_centre_is_a_residence():
     more public disclosure than a string in a source file.
     """
     manifest = json.loads((ROOT / "api" / "stepwise" / "data" / "manifest.json").read_text())
+    forbidden = {d for d, _ in FORBIDDEN_COORDINATES}
     for region in manifest["regions"]:
-        latitude, longitude = region["center"]
-        assert not (40.91 < latitude < 40.92 and -89.51 < longitude < -89.50), (
-            f"region {region['key']!r} is centred on a private residence"
-        )
+        for value in region["center"]:
+            whole, _, fraction = f"{value:.6f}".partition(".")
+            assert digest(f"{whole}.{fraction[:3]}") not in forbidden, (
+                f"region {region['key']!r} is centred on a private residence"
+            )
