@@ -278,6 +278,35 @@ address impossible.
 scrubbing the working tree does not rewrite past commits. Removing it needs a
 history rewrite and a force push — David's call, not to be done unprompted.
 
+## If cost were not a constraint
+
+The free-tier rule shaped several decisions. Worth separating the ones that were
+compromises from the ones that were simply correct, because a reviewer will ask.
+
+**Would not change.** S3 as the artifact store is the right answer at any budget —
+it is a blob store holding blobs. And the routing graph would stay as flat arrays
+in process memory: a Dijkstra settling tens of thousands of nodes cannot make
+network calls, so no database is fast enough at any price. That is physics, not
+frugality.
+
+**Would change.**
+- **PostGIS on Aurora/RDS for geocoding, places and region metadata.** This is the
+  real compromise. Today addresses are baked per region into sorted arrays, POI
+  lookup is a linear scan, and "did you mean" is `difflib`. PostGIS gives GiST
+  spatial indexes, `pg_trgm` for proper fuzzy text, and removes the need to rebuild
+  a container to add one address. At continental scale the current design does not
+  hold; at city scale it is genuinely faster.
+- **Long-lived compute instead of Lambda** — ECS/Fargate — so a whole country's
+  graph stays resident rather than being decoded per container. Lambda's cold start
+  is fine here only because the datasets are small.
+- **ElastiCache/Valkey** for hot region metadata and rate limiting, replacing the
+  S3 status documents and the per-container TTL cache.
+- **A real routing engine's preprocessing** — contraction hierarchies or CRP, as
+  OSRM and Valhalla use — if coverage went national. Bounded Dijkstra is the right
+  algorithm for a 40-minute walk in one city and the wrong one for a continent.
+- **DynamoDB for the region catalogue** if build concurrency ever outgrew S3's
+  conditional writes.
+
 ## Regions
 
 | key | area | nodes | edges | addresses |
@@ -368,6 +397,14 @@ Deliberately far beyond what a service this size would run in production:
 - CloudTrail management events, 30-day S3 lifecycle. Data events deliberately
   **off** — they bill per event.
 - Log retention capped at 14 days everywhere.
+
+## Working style
+
+**Parallelise with subagents.** David wants three or four running at once, not a
+serial queue. Partition by *file ownership* and say so explicitly in each prompt —
+concurrent edits to one file is the only real failure mode. Keep whole-repo or
+destructive operations (history rewrites, force pushes) for the main session, and
+run them only when no agent is mid-edit, since they need a clean tree.
 
 ## Conventions
 

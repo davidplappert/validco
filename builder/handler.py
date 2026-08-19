@@ -188,6 +188,18 @@ def handler(event: dict, context=None) -> dict:
     key = event["key"]
     catalog = RegionCatalog()
 
+    # Checked before anything expensive happens. With no bucket the catalogue
+    # degrades to a no-op — progress writes vanish, the completion write
+    # vanishes — so the build would run for a minute or two and then die at the
+    # upload with nothing recorded anywhere the user can see. Better to say so
+    # in the logs immediately and cost nothing.
+    if not catalog.enabled:
+        LOG.error("region build cannot start key=%s: REGION_BUCKET is not set", key)
+        raise RuntimeError(
+            "REGION_BUCKET is not configured on the builder function; "
+            "there is nowhere to record progress or publish the datasets"
+        )
+
     status = catalog.get(key) or RegionStatus(key=key, label=event.get("label", key))
     LOG.info("region build starting key=%s payload=%s", key, event)
 

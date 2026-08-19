@@ -332,8 +332,24 @@ that comparison.
 
 A database would earn its place if the data were mutable, per-user, or too large
 for a deployment package. It is none of those: 25 MB, derived offline from
-public data, identical for every user. The moment any of that changes — user
-accounts, saved routes, nationwide coverage — the answer changes with it.
+public data, identical for every user.
+
+**What would change without the free-tier rule?** Worth separating the
+compromises from the choices that were simply correct.
+
+S3 as the artifact store would stay — it is a blob store holding blobs. So would
+the in-memory routing graph, because a search settling tens of thousands of
+nodes cannot make network calls at any price.
+
+The real compromise is **geocoding and places**. Addresses are baked per region
+into sorted arrays, POI lookup is a linear scan, and "did you mean" is
+`difflib`. With a budget that would be **PostGIS on Aurora**: GiST spatial
+indexes, `pg_trgm` for proper fuzzy matching, and no rebuild required to add one
+address. Alongside it, **Fargate rather than Lambda** so a whole country's graph
+stays resident, **ElastiCache** for hot region state, and — if coverage went
+national — a real preprocessing step such as contraction hierarchies, which is
+what OSRM and Valhalla use and what bounded Dijkstra stops being adequate for
+somewhere past city scale.
 
 ## Observability
 

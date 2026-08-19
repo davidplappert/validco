@@ -310,7 +310,19 @@ class RegionCatalog:
             return False
 
     def upload(self, key: str, suffix: str, source: str) -> None:
-        """Store one baked container."""
+        """Store one baked container.
+
+        Unlike the readers this refuses to no-op when no bucket is configured.
+        A silent write is the worst outcome here: the reads would keep reporting
+        "not built" while every build appeared to run, and the first deployment
+        failed in exactly that shape — with an unreadable botocore complaint
+        about an empty bucket name arriving after a ninety-second extraction.
+        """
+        if not self.enabled:
+            raise RuntimeError(
+                "no region bucket is configured (REGION_BUCKET is unset), "
+                "so the baked containers have nowhere to go"
+            )
         self.client.upload_file(
             source,
             self.bucket,

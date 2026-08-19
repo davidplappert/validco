@@ -2,11 +2,27 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, planWalk, type PlanRequest } from "@/lib/api";
-import type { PlanResponse } from "@/lib/types";
+import type { ErrorAction, PlanResponse } from "@/lib/types";
 
+/**
+ * A failed plan, keeping what the server said about how to recover.
+ *
+ * `message` and `hint` are what gets rendered; `code` and `action` are what the
+ * page branches on. Branching on the machine code is what turns "we don't cover
+ * that area" into an offer to build it, so the structured fields have to survive
+ * the trip out of the hook rather than being flattened into a sentence here.
+ */
 export interface PlannerError {
   message: string;
   hint?: string;
+  /** The API's machine-readable failure kind, e.g. `region_not_covered`. */
+  code?: string;
+  /** A heading the server considers safe to show. */
+  title?: string;
+  /** The recovery step the server offered, if any. */
+  action?: ErrorAction | null;
+  /** Areas the deployment already covers. */
+  covered?: string[];
 }
 
 export interface PlannerState {
@@ -61,7 +77,15 @@ export function usePlanner(options: PlannerOptions = {}): PlannerState {
         const suggestions = caught.suggestions();
         setError({
           message: caught.message,
-          hint: suggestions.length ? `Did you mean: ${suggestions.join(", ")}?` : undefined,
+          hint: suggestions.length
+            ? `Did you mean: ${suggestions.join(", ")}?`
+            : caught.userDetail !== caught.message
+              ? caught.userDetail
+              : undefined,
+          code: caught.code,
+          title: caught.title,
+          action: caught.action,
+          covered: caught.covered,
         });
       } else if (caught instanceof Error && /config\.json/.test(caught.message)) {
         // The runtime config is written into the site bucket by CDK. If it is

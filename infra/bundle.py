@@ -125,7 +125,15 @@ def _uv_command(staging: Path) -> list[str] | None:
 
 
 def _pip_command(staging: Path) -> list[str]:
-    """The `pip install` form, used when uv is unavailable."""
+    """The `pip install` form, used when uv is unavailable.
+
+    Nothing is trimmed from the result afterwards. An earlier version tried to
+    delete `tests/` and `*.dist-info` directories, in unreachable code after
+    this return — so it never ran, and the 27 MB package it produces is
+    comfortably inside Lambda's 250 MB unzipped limit anyway. Deleting
+    `*.dist-info` would also break any dependency that reads its own version
+    through `importlib.metadata`.
+    """
     return [
         sys.executable,
         "-m",
@@ -146,8 +154,3 @@ def _pip_command(staging: Path) -> list[str]:
         "--upgrade",
         *RUNTIME_DEPENDENCIES,
     ]
-    # Trim test suites and metadata that pip brings along.
-    for pattern in ("**/tests", "**/*.dist-info"):
-        for path in staging.glob(pattern):
-            if path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)

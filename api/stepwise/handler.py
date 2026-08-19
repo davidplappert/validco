@@ -13,6 +13,7 @@ Routes
 ``GET  /v1/regions/{key}``     one region's state and build progress
 ``DELETE /v1/regions/{key}``   clear a failed build so it can be retried
 ``GET  /v1/geocode``   free-text address to coordinates, from Overture addresses
+``GET  /v1/suggest``   address autocomplete as the user types
 ``GET  /v1/places``    named destinations near a point
 ``POST /v1/plan``      the product: profile plus start point to ranked walks
 
@@ -37,6 +38,7 @@ from .controllers import (
     RegionRequestController,
     RegionsController,
     RegionStatusController,
+    SuggestController,
 )
 from .http.router import Router
 from .logging_config import configure
@@ -59,6 +61,7 @@ def build_router() -> Router:
         .register("GET", "/v1/regions/{key}", RegionStatusController())
         .register("DELETE", "/v1/regions/{key}", RegionDeleteController())
         .register("GET", "/v1/geocode", GeocodeController())
+        .register("GET", "/v1/suggest", SuggestController())
         .register("GET", "/v1/places", PlacesController())
         .register("POST", "/v1/plan", PlanController())
     )

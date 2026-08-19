@@ -1,16 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import PlanForm, { DEFAULT_PLAN_REQUEST } from "@/components/form/PlanForm";
-import ErrorPanel from "@/components/feedback/ErrorPanel";
 import AppHeader from "@/components/layout/AppHeader";
 import Attribution from "@/components/layout/Attribution";
 import Panel from "@/components/layout/Panel";
 import MapLegend from "@/components/map/MapLegend";
+import RegionGate from "@/components/regions/RegionGate";
 import ResultsPanel from "@/components/results/ResultsPanel";
 import { usePlanner } from "@/hooks/usePlanner";
+import { useRegionBuilder } from "@/hooks/useRegionBuilder";
 import { useRegions } from "@/hooks/useRegions";
+import type { PlanRequest } from "@/lib/api";
+import type { ErrorAction } from "@/lib/types";
 
 // MapLibre touches `window` on import, so it must stay out of the static
 // prerender that `next build` performs at export time.
@@ -37,6 +40,53 @@ export default function Home() {
   // is worth their time.
   const { result, selectedIndex, busy, error, priming, submit, select } =
     usePlanner({ autoRun: DEFAULT_PLAN_REQUEST });
+
+  // The request that produced the current state, kept so a freshly-built area
+  // can be planned without the user retyping anything.
+  const lastRequest = useRef<PlanRequest>(DEFAULT_PLAN_REQUEST);
+
+  const builder = useRegionBuilder({
+    // The wait only means something if the walk arrives at the end of it.
+    onReady: () => void submit(lastRequest.current),
+  });
+  const { request: requestRegion, retry: retryRegion, cancel: cancelRegion } = builder;
+
+  const handleSubmit = useCallback(
+    (request: PlanRequest) => {
+      lastRequest.current = request;
+      // A new address abandons whatever the previous one was waiting on. If it
+      // is the same area, the plan comes straight back as `region_building` and
+      // the effect below picks the watch up again.
+      cancelRegion();
+      void submit(request);
+    },
+    [cancelRegion, submit],
+  );
+
+  const handleAddRegion = useCallback(
+    (action: ErrorAction) => {
+      requestRegion({ place: action.place, lat: action.lat, lon: action.lon });
+    },
+    [requestRegion],
+  );
+
+  const handleRetryRegion = useCallback(
+    (action: ErrorAction | null) => {
+      // `retry_region` names the key but not the place, so the address the user
+      // typed is passed along as the thing to re-request once it is cleared.
+      retryRegion(
+        action ? { key: action.key, place: action.place ?? lastRequest.current.address } : undefined,
+      );
+    },
+    [retryRegion],
+  );
+
+  // Someone else already started this build, so join it rather than starting
+  // another. `error` is a fresh object per failure, so this fires once each.
+  useEffect(() => {
+    if (error?.code !== "region_building" || !error.action?.key) return;
+    requestRegion({ key: error.action.key });
+  }, [error, requestRegion]);
 
   const center = useMemo<[number, number]>(() => {
     if (result) return [result.origin.lat, result.origin.lon];
@@ -70,8 +120,19 @@ export default function Home() {
 
       <Panel>
         <AppHeader />
-        <PlanForm busy={busy} onSubmit={submit} />
-        {error && <ErrorPanel error={error} regions={regions} />}
+        <PlanForm busy={busy} onSubmit={handleSubmit} />
+        <RegionGate
+          error={error}
+          builder={builder}
+          regions={regions}
+          onAddRegion={handleAddRegion}
+          onRetryRegion={handleRetryRegion}
+        />
+        {builder.state === "ready" && busy && (
+          <p className="text-xs text-ink-dim" role="status">
+            {builder.label ?? "That area"} is ready — planning your walk…
+          </p>
+        )}
         {priming && !result && !error && (
           <p className="text-xs text-ink-dim" role="status">
             Planning a first walk so you can see what this does…

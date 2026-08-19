@@ -280,6 +280,83 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /v1/suggest:
+    get:
+      tags: [geocoding]
+      operationId: suggestAddresses
+      summary: Address completions as the user types
+      description: |
+        Autocomplete served from the same Overture corpus as the geocoder, so
+        it costs nothing per keystroke and the user's partial home address
+        never leaves this deployment — unlike a commercial places API.
+
+        Forgiving about how much has been typed: `"cali"` returns street names,
+        `"1100 cal"` returns concrete addresses at that number on matching
+        streets, and `"1100 california"` returns the exact address plus nearby
+        house numbers.
+
+        Ranking is by prefix match first, then by how many addresses a street
+        has — a stand-in for prominence, so `"cal"` returns California Street
+        rather than Calgary Street.
+
+        Always returns 200. A query too short or too long yields an empty list
+        rather than an error, because a 4xx mid-word turns every keystroke into
+        a UI error.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: The partial address typed so far.
+          schema: { type: string }
+          examples:
+            partialStreet: { value: cali }
+            numberAndPartialStreet: { value: 1100 cal }
+            fullAddress: { value: 1100 California St }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 10, default: 8 }
+        - name: region
+          in: query
+          required: false
+          description: Restrict to one region. Omit to search all of them.
+          schema: { $ref: "#/components/schemas/RegionKey" }
+      responses:
+        "200":
+          description: Ranked completions, best first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [query, suggestions]
+                properties:
+                  query: { type: string }
+                  suggestions:
+                    type: array
+                    maxItems: 10
+                    items:
+                      type: object
+                      required: [kind, label, value, region]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [street, address]
+                        label:
+                          type: string
+                          description: What to show in the dropdown.
+                          example: 1100 CALIFORNIA ST, 94108
+                        value:
+                          type: string
+                          description: What to put in the input when chosen.
+                        region: { $ref: "#/components/schemas/RegionKey" }
+                        lat:
+                          type: [number, "null"]
+                          description: >
+                            Present so the client can plan directly from a
+                            chosen suggestion without a second geocode.
+                        lon: { type: [number, "null"] }
+                  attribution: { type: string }
+
   /v1/places:
     get:
       tags: [planning]

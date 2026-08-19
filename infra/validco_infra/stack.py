@@ -128,7 +128,9 @@ class StepWiseStack(Stack):
         # The on-demand coverage store. Regions are extracted once, cached
         # here, and served to every container thereafter.
         region_bucket = self._region_bucket()
-        builder = self._builder_function(builder_dir, log_level) if builder_dir else None
+        builder = (
+            self._builder_function(builder_dir, log_level, region_bucket) if builder_dir else None
+        )
 
         fn = self._function(api_dir, app_version, log_level, distribution, region_bucket, builder)
         api = self._rest_api(fn, distribution)
@@ -283,13 +285,20 @@ class StepWiseStack(Stack):
             ],
         )
 
-    def _builder_function(self, builder_dir: str, log_level: str) -> lambda_.Function:
+    def _builder_function(
+        self, builder_dir: str, log_level: str, region_bucket: s3.Bucket
+    ) -> lambda_.Function:
         """The region extractor.
 
         A separate function from the API on purpose. It carries DuckDB and
         Pillow — about 80 MB — needs minutes rather than milliseconds, and wants
         far more memory. Sharing a package with the request path would inflict
         all of that on every plan request's cold start.
+
+        It needs the region bucket for the same reason the API does: it writes
+        progress into ``status.json`` throughout the build and uploads the baked
+        containers at the end. The bucket is passed in rather than created here
+        so the two functions share one cache.
         """
         log_group = logs.LogGroup(
             self,
@@ -298,7 +307,7 @@ class StepWiseStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        return lambda_.Function(
+        function = lambda_.Function(
             self,
             "BuilderFunction",
             runtime=lambda_.Runtime.PYTHON_3_13,
@@ -325,8 +334,17 @@ class StepWiseStack(Stack):
                 "PYTHONUNBUFFERED": "1",
                 # DuckDB resolves a writable home for its extension cache.
                 "HOME": "/tmp",
+                # Without this the builder's catalogue is disabled: every
+                # progress write silently no-ops and the upload fails on an
+                # empty bucket name, after the extraction has already run. The
+                # first on-demand build failed exactly that way.
+                "REGION_BUCKET": region_bucket.bucket_name,
             },
         )
+
+        # Progress documents and the baked containers both live in this bucket.
+        region_bucket.grant_read_write(function)
+        return function
 
     def _distribution(self, bucket: s3.Bucket) -> cloudfront.Distribution:
         headers = self._security_headers()
@@ -441,7 +459,6 @@ class StepWiseStack(Stack):
         region_bucket.grant_read_write(function)
         if builder is not None:
             builder.grant_invoke(function)
-            region_bucket.grant_read_write(builder)
 
         return function
 
