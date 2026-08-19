@@ -157,6 +157,14 @@ class TestStreetNormalizer:
     def test_variants_fold_to_one_key(self, written, canonical):
         assert StreetNormalizer().normalize(written) == canonical
 
+    def test_numbered_streets_resolve_in_both_regions(self, pia, sf):
+        """The end-to-end proof, against real data written two different ways."""
+        peoria = Geocoder(pia.addresses).resolve("908 N 2nd St, Chillicothe, IL 61523")
+        assert peoria.found, "Peoria spells this street out; the digit form must still find it"
+
+        san_francisco = Geocoder(sf.addresses).resolve("1 3rd St, San Francisco")
+        assert san_francisco.found, "San Francisco zero-pads; the plain form must still find it"
+
     def test_is_a_pure_function(self):
         """Both the builder and the runtime call this; it cannot carry state."""
         normalizer = StreetNormalizer()

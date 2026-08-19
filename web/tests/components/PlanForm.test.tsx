@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import PlanForm from "@/components/form/PlanForm";
+import PlanForm, { DEFAULT_ADDRESS } from "@/components/form/PlanForm";
+
+/** Empty the pre-filled address field so a test can type its own into it. */
+async function clearAddress() {
+  await userEvent.clear(screen.getByLabelText(/Start address/i));
+}
 
 describe("PlanForm", () => {
   it("collects a full profile and submits it in the API's shape", async () => {
     const onSubmit = vi.fn();
     render(<PlanForm busy={false} onSubmit={onSubmit} />);
 
+    await clearAddress();
     await userEvent.type(
       screen.getByLabelText(/Start address/i),
       "100 N Main St, Morton, IL",
@@ -37,6 +43,7 @@ describe("PlanForm", () => {
     const onSubmit = vi.fn();
     render(<PlanForm busy={false} onSubmit={onSubmit} />);
 
+    await clearAddress();
     await userEvent.type(screen.getByLabelText(/Start address/i), "Market St");
     await userEvent.clear(screen.getByLabelText(/Height \(ft\)/i));
     await userEvent.clear(screen.getByLabelText(/Height \(in\)/i));
@@ -52,6 +59,7 @@ describe("PlanForm", () => {
   it("sends the height when supplied", async () => {
     const onSubmit = vi.fn();
     render(<PlanForm busy={false} onSubmit={onSubmit} />);
+    await clearAddress();
     await userEvent.type(screen.getByLabelText(/Start address/i), "Market St");
     await userEvent.click(screen.getByRole("button", { name: /find me a walk/i }));
     expect(onSubmit.mock.calls[0][0].profile).toMatchObject({ height_ft: 5, height_in: 10 });
@@ -67,6 +75,7 @@ describe("PlanForm", () => {
       const onSubmit = vi.fn();
       render(<PlanForm busy={false} onSubmit={onSubmit} />);
       const slider = screen.getByLabelText(/Walk duration in minutes/i);
+      await clearAddress();
       await userEvent.type(screen.getByLabelText(/Start address/i), "Market St");
       // fireEvent-style change: range inputs do not respond to typing.
       slider.setAttribute("value", "60");
@@ -91,6 +100,7 @@ describe("PlanForm", () => {
     it("toggles a preference and submits the new value", async () => {
       const onSubmit = vi.fn();
       render(<PlanForm busy={false} onSubmit={onSubmit} />);
+      await clearAddress();
       await userEvent.type(screen.getByLabelText(/Start address/i), "Market St");
       await userEvent.click(screen.getByRole("button", { name: "Avoid hills" }));
       expect(screen.getByRole("button", { name: "Avoid hills" })).toHaveAttribute(
@@ -108,9 +118,22 @@ describe("PlanForm", () => {
     expect(button).toBeDisabled();
   });
 
-  it("requires an address", async () => {
+  it("starts with a usable address already filled in", async () => {
     const onSubmit = vi.fn();
     render(<PlanForm busy={false} onSubmit={onSubmit} />);
+
+    // A default rather than a placeholder: the value is really in the field, so
+    // pressing the button straight away plans a walk instead of failing
+    // validation. It is Chillicothe City Hall, a public building.
+    expect(screen.getByLabelText(/Start address/i)).toHaveValue(DEFAULT_ADDRESS);
+    await userEvent.click(screen.getByRole("button", { name: /find me a walk/i }));
+    expect(onSubmit.mock.calls[0][0].address).toBe(DEFAULT_ADDRESS);
+  });
+
+  it("requires an address once the default is cleared", async () => {
+    const onSubmit = vi.fn();
+    render(<PlanForm busy={false} onSubmit={onSubmit} />);
+    await clearAddress();
     await userEvent.click(screen.getByRole("button", { name: /find me a walk/i }));
     // Native validation blocks submission, so the handler never fires.
     expect(onSubmit).not.toHaveBeenCalled();

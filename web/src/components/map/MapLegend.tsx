@@ -12,11 +12,15 @@ const LABELS: Record<string, string> = {
  *
  * Sits over the map rather than in the panel because it explains the map, and
  * a legend two feet from the thing it describes is not a legend.
+ *
+ * Hidden below `sm`. On a phone the map pane is a couple of hundred pixels
+ * tall, and four rows of key would take a visible fraction of it to explain
+ * colours the user can also read off the surface bar inside each route card.
  */
 export default function MapLegend() {
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-lg border border-line bg-ground/85 px-2.5 py-2 backdrop-blur-sm">
-      <ul className="flex flex-col gap-1">
+    <div className="pointer-events-none absolute bottom-3 left-3 z-10 hidden rounded-lg border border-line bg-ground/85 px-2.5 py-2 backdrop-blur-sm sm:block">
+      <ul aria-label="Surface colour key" className="flex flex-col gap-1">
         {Object.entries(SURFACE_COLOURS).map(([surface, colour]) => (
           <li key={surface} className="flex items-center gap-1.5 text-[10px] text-ink-dim">
             <span

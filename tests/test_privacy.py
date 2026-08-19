@@ -5,9 +5,18 @@ address and a real body weight, which is exactly the kind of thing that gets
 committed once and then lives in the git history forever. These tests fail the
 build if either reappears.
 
-The patterns below are deliberately specific — a street name, a postcode, a
-coordinate — rather than a general "looks like an address" heuristic, because a
+The patterns below are deliberately specific — a street name, a coordinate, a
+weight — rather than a general "looks like an address" heuristic, because a
 vague test that fires on the fixture data would be turned off within a week.
+
+What counts as personal here is drawn narrowly on purpose. A particular
+dwelling identifies the people inside it: the residential street name and the
+coordinates that land on its roof are the leak. A town of several thousand and
+the ZIP code covering all of them are not personal data, and neither is a civic
+building whose address the city publishes itself — the form ships with one as
+its default start point. Forbidding the town and the postcode outright banned
+public record along with the private detail, and would have made a usable
+default impossible.
 """
 
 from __future__ import annotations
@@ -42,10 +51,14 @@ SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".yaml", ".yml", ".json"
 #: Specific personal identifiers that must never appear. Each entry is
 #: (pattern, what it is), so a failure says what leaked rather than just
 #: "pattern matched".
+#:
+#: Every entry has to point at one household. The town name and its postcode
+#: were listed here once and are not any more: they are shared by everyone who
+#: lives there and by the public buildings among them, so banning them said
+#: nothing about the residence while forbidding the civic address the form uses
+#: as its default.
 FORBIDDEN: list[tuple[str, str]] = [
     (r"\bmain\s+(dr|drive)\b", "a private residential street name"),
-    (r"\b61523\b", "the postcode of a private residence"),
-    (r"\bchillicothe\b", "the town of a private residence"),
     (r"40\.917\d*", "the latitude of a private residence"),
     (r"-89\.502\d*", "the longitude of a private residence"),
     (r"\b361\s*(lb|lbs|pounds)\b", "a real person's body weight"),
@@ -98,12 +111,21 @@ def test_the_scanner_actually_scans_something():
     assert "handler.py" in names and "page.tsx" in names
 
 
+#: The start address the form is pre-filled with. Chillicothe City Hall: the
+#: seat of the town's government, listed on the city's own website, so it
+#: identifies an office rather than a person. The street is spelled out because
+#: Overture stores it as "North Second Street" and the geocoder does not fold
+#: "2nd" into "Second".
+DEFAULT_START_ADDRESS = "908 N Second St, Chillicothe, IL 61523"
+
+
 def test_fixture_addresses_are_public_places():
     """The addresses used in tests should be civic or commercial, not homes.
 
-    Not enforceable automatically — this documents the intent and pins the
-    specific values, so swapping in a residential address is a visible change in
-    review rather than an invisible one.
+    Not enforceable automatically — a street address does not announce whether
+    anyone lives at it — so this documents the intent and pins the specific
+    values, making a swap to a residential address a visible change in review
+    rather than an invisible one.
     """
     expected = {
         "100 N Main St, Morton, IL",  # a commercial main street
@@ -114,3 +136,18 @@ def test_fixture_addresses_are_public_places():
     api_tests = (ROOT / "tests" / "test_api.py").read_text()
     combined = conftest + api_tests
     assert any(address.split(",")[0] in combined for address in expected)
+
+
+def test_the_default_start_address_is_a_public_building():
+    """The address the form ships with must be civic, not residential.
+
+    It matters more than a test fixture does: it is what a first-time visitor
+    plans a walk from, what every screenshot of the app shows, and the one
+    address in the repository that nobody has to type. A house would be a
+    private address published to every user of the site.
+    """
+    form = (ROOT / "web" / "src" / "components" / "form" / "PlanForm.tsx").read_text()
+    assert DEFAULT_START_ADDRESS in form, (
+        f"the form's default start address should be {DEFAULT_START_ADDRESS} "
+        "(Chillicothe City Hall), a building on public record"
+    )

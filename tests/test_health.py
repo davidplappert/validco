@@ -296,3 +296,80 @@ def test_unit_conversions():
     assert lb_to_kg(320) == pytest.approx(145.15, abs=0.01)
     assert ft_in_to_cm(6, 0) == pytest.approx(182.88, abs=0.01)
     assert ft_in_to_cm(5, 10) == pytest.approx(177.8, abs=0.01)
+
+
+class TestWeightProjection:
+    """The most-requested number in a fitness app, and the easiest to overstate.
+
+    These tests pin the honesty properties rather than exact figures: that the
+    long-run projection is materially *smaller* than the naive rule, that it
+    uses net rather than gross calories, and that it refuses to project from a
+    deficit too small to mean anything.
+    """
+
+    def _projection(self, sessions=3):
+        from stepwise.models.health import WeightProjection
+
+        profile = Profile("male", 45, lb_to_kg(320), 182.88)
+        effort = evaluate_walk(profile, [(2100.0, 4.0)])
+        return WeightProjection(profile, effort), effort, profile
+
+    def test_one_year_is_far_below_the_naive_3500_rule(self):
+        """The whole point of using Hall's model.
+
+        Applied for a year the static rule roughly doubles real loss, because
+        it ignores the fall in metabolism as body mass drops. If this ever
+        stops holding, the app has quietly reverted to the wrong model.
+        """
+        projection, effort, _ = self._projection()
+        result = projection.for_frequency(3)
+
+        naive_one_year_lb = (effort.kcal_net * 3 * 52) / 3500.0
+        assert result["one_year_lb"] < naive_one_year_lb * 0.75
+
+    def test_projections_scale_with_frequency(self):
+        projection, _, _ = self._projection()
+        values = [projection.for_frequency(f)["eventual_lb"] for f in (3, 5, 7)]
+        assert values == sorted(values)
+
+    def test_uses_net_calories_not_gross(self):
+        """Only energy above resting can contribute to a deficit. Using gross
+        — as most calculators do — inflates every projection."""
+        projection, effort, _ = self._projection()
+        weekly = projection.for_frequency(3)["weekly_kcal"]
+        assert weekly == pytest.approx(effort.kcal_net * 3, abs=1)
+        assert weekly < effort.kcal_gross * 3
+
+    def test_settles_above_the_one_year_figure(self):
+        """Weight change continues past a year, then plateaus."""
+        projection, _, _ = self._projection()
+        result = projection.for_frequency(5)
+        assert result["eventual_lb"] > result["one_year_lb"]
+        assert result["one_year_lb"] > result["first_month_lb"]
+
+    def test_a_trivial_walk_is_not_projected(self):
+        """Below a real weekly deficit, a number would imply precision that is
+        not there — so the model says so instead."""
+        from stepwise.models.health import WeightProjection
+
+        profile = Profile("female", 30, 60.0, 165.0)
+        tiny = evaluate_walk(profile, [(120.0, 0.0)])
+        assert WeightProjection(profile, tiny).for_frequency(3)["meaningful"] is False
+
+    def test_appetite_compensation_is_disclosed(self):
+        """The single biggest reason real loss undershoots these numbers."""
+        projection, _, _ = self._projection()
+        caveats = " ".join(projection.to_dict()["caveats"]).lower()
+        assert "eat" in caveats
+
+    def test_reports_the_share_of_body_weight(self):
+        projection, _, profile = self._projection()
+        result = projection.for_frequency(7)
+        assert 0 < result["eventual_pct_of_body_weight"] < 100
+
+    def test_appears_in_the_health_report(self):
+        profile = Profile("male", 45, lb_to_kg(320), 182.88)
+        effort = evaluate_walk(profile, [(2100.0, 4.0)])
+        payload = health_effects(profile, effort)
+        assert "weight_projection" in payload
+        assert payload["weight_projection"]["projections"]

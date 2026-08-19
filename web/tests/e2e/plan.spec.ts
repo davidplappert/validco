@@ -18,12 +18,19 @@ test.beforeEach(async ({ page }) => {
   await stubApi(page);
 });
 
-test("loads with the form ready and no results", async ({ page }) => {
+test("opens with a plan already run, not an empty form", async ({ page }) => {
+  // The app plans its default address on load. An empty first screen would ask
+  // the user to do work before they can tell whether the product is any good,
+  // so the opening state is a real route with real numbers.
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /StepWise/i })).toBeVisible();
-  await expect(page.getByLabel(/Start address/i)).toBeVisible();
+
+  const address = page.getByLabel(/Start address/i);
+  await expect(address).toBeVisible();
+  await expect(address).not.toHaveValue("");
+
+  await expect(page.getByLabel("Suggested walks")).toBeVisible();
   await expect(page.getByRole("button", { name: /find me a walk/i })).toBeEnabled();
-  await expect(page.getByLabel("Suggested walks")).toHaveCount(0);
 });
 
 test("plans a walk and shows ranked suggestions", async ({ page }) => {
@@ -93,6 +100,11 @@ test("toggling a preference changes what is requested", async ({ page }) => {
 
 test("shows the data attribution", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText(/Overture Maps Foundation/)).toBeVisible();
-  await expect(page.getByText(/not medical advice/i)).toBeVisible();
+  // Scoped to the footer: the medical disclaimer also appears in each route's
+  // caveat list once results are on screen, and an unscoped match resolves to
+  // several elements.
+  const footer = page.locator("footer");
+  await expect(footer).toContainText(/Overture Maps Foundation/);
+  await expect(footer).toContainText(/OpenStreetMap/);
+  await expect(footer).toContainText(/not medical advice/i);
 });

@@ -119,12 +119,34 @@ export interface JointLoadReport {
   note: string;
 }
 
+/** One frequency's projected weight change. */
+export interface WeightProjectionEntry {
+  sessions_per_week: number;
+  weekly_kcal: number;
+  first_month_lb: number;
+  one_year_lb: number;
+  eventual_lb: number;
+  eventual_pct_of_body_weight: number;
+  /** False when the weekly deficit is too small to project honestly. */
+  meaningful: boolean;
+}
+
+/** Projected body-weight change from repeating a walk. */
+export interface WeightProjection {
+  projections: WeightProjectionEntry[];
+  basis: string;
+  note: string;
+  method: string;
+  caveats: string[];
+}
+
 /** Everything the app is willing to claim about a walk, with its caveats. */
 export interface Health {
   guideline_progress: GuidelineProgress;
   steps: StepProgress;
   energy: EnergyReport;
   joint_load: JointLoadReport;
+  weight_projection: WeightProjection;
   caveats: string[];
 }
 

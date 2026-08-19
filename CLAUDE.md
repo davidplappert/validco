@@ -245,8 +245,19 @@ Fixtures now used, all civic or commercial:
 
 - `100 N Main St, Morton, IL 61550` — a commercial main street
 - `1100 California St, San Francisco` — Grace Cathedral, on Nob Hill for terrain
+- `908 N Second St, Chillicothe, IL 61523` — Chillicothe City Hall, the address
+  `PlanForm` is pre-filled with so the app works on load. Written with the
+  ordinal spelled out because Overture stores "North Second Street" and
+  `StreetNormalizer` does not fold "2nd"; abbreviated, the geocode misses.
 - Synthetic profile: male, 45, 320 lb, 6'0" — still obesity class III, so the
   same code paths are exercised without describing a real person
+
+**What the guard forbids, and what it does not.** Only things that point at one
+household: the residential street name, the coordinates on its roof, the real
+body weight. The town name and the postcode were banned outright at first and
+are not any more — they are shared by several thousand people and by the town's
+own public buildings, so the ban described nobody while making a civic default
+address impossible.
 
 **Outstanding:** the git *history* still contains the original address, since
 scrubbing the working tree does not rewrite past commits. Removing it needs a
@@ -274,8 +285,10 @@ accurate data, not a bug.
 - 319 backend (physiology, models, health, services, http, api, infra, security,
   performance, container, geocode, openapi)
 - 52 Vitest (components, hooks, formatting, API client)
-- 48 Playwright (desktop + mobile, against a local static export with the API
-  stubbed)
+- 50 Playwright on `chromium` + `mobile`, plus 42 more across seven
+  viewport-named projects (`phone-small` 320x568 through `desktop-wide`
+  2560x1440) which run `responsive.spec.ts` only. All against a local static
+  export with the API stubbed.
 
 Load-bearing properties, worth preserving:
 
@@ -286,6 +299,10 @@ Load-bearing properties, worth preserving:
   a guideline constant changes without the spec following.
 - The deploy workflow runs `deployed.spec.ts` against the **live** deployment
   with nothing stubbed.
+- `responsive.spec.ts` asserts the map container's **height**, not just its
+  presence, at every viewport. The zero-height map was a real shipped bug and a
+  presence check passes straight through it; the assertion was verified to fail
+  when the collapse is reintroduced.
 
 ## Deployment
 
@@ -348,6 +365,18 @@ Deliberately far beyond what a service this size would run in production:
   The dependency runs runtime → builder, never the reverse.
 - Region data is committed. Rebuild with the pipeline rather than editing `.spw`.
 - Frontend components stay small and single-purpose; page.tsx is composition only.
+- **The layout is a bottom sheet below `sm` and a floating side panel above it.**
+  On a phone `main` is a flex column: the map pane takes 38% of the height and
+  the panel takes the rest, so the panel can never hide the map. From `sm` the
+  map pane goes back to `absolute inset-0` and the panel floats over its right
+  edge, capped at 420 px on a tablet, 430 px from `lg` and 480 px from `2xl`.
+  The legend lives *inside* the map pane, so it is positioned against the map
+  rather than the viewport and cannot drift under the panel; it is hidden below
+  `sm`.
+- **Inside the panel, use container queries (`@sm:`), not viewport breakpoints.**
+  The panel is roughly the same width on a tablet as on a phone, so a `sm:` rule
+  pairs cards up exactly where there is least room. `Panel` is the `@container`;
+  `HealthPanel` and `RouteStats` key off it.
 
 ## Status
 

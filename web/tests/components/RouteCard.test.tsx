@@ -4,6 +4,17 @@ import userEvent from "@testing-library/user-event";
 import RouteCard from "@/components/results/RouteCard";
 import { hillyRoute, route } from "../fixtures";
 
+/**
+ * The route card itself, as opposed to the controls inside it.
+ *
+ * An expanded card contains its own buttons (the weight-projection frequency
+ * toggles), so "the button" is ambiguous; the card carries an aria-label
+ * naming the walk.
+ */
+function cardButton() {
+  return screen.getByRole("button", { name: /minutes,.*miles/i });
+}
+
 describe("RouteCard", () => {
   it("shows the headline figures", () => {
     render(<RouteCard route={route} selected={false} onSelect={() => {}} />);
@@ -45,7 +56,7 @@ describe("RouteCard", () => {
     it("hides the health detail when collapsed", () => {
       render(<RouteCard route={route} selected={false} onSelect={() => {}} />);
       expect(screen.queryByText(/Weekly activity target/i)).not.toBeInTheDocument();
-      expect(screen.getByRole("button")).toHaveAttribute("aria-expanded", "false");
+      expect(cardButton()).toHaveAttribute("aria-expanded", "false");
     });
 
     it("reveals the health detail when selected", () => {
@@ -53,7 +64,7 @@ describe("RouteCard", () => {
       expect(screen.getByText(/Weekly activity target/i)).toBeInTheDocument();
       expect(screen.getByText(/Daily steps/i)).toBeInTheDocument();
       expect(screen.getByText(/Joint loading/i)).toBeInTheDocument();
-      expect(screen.getByRole("button")).toHaveAttribute("aria-expanded", "true");
+      expect(cardButton()).toHaveAttribute("aria-expanded", "true");
     });
 
     it("shows the suitability reasons, not just the score", () => {
@@ -73,7 +84,7 @@ describe("RouteCard", () => {
   it("calls onSelect when clicked", async () => {
     const onSelect = vi.fn();
     render(<RouteCard route={route} selected={false} onSelect={onSelect} />);
-    await userEvent.click(screen.getByRole("button"));
+    await userEvent.click(cardButton());
     expect(onSelect).toHaveBeenCalledOnce();
   });
 

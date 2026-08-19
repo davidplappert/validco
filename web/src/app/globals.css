@@ -1,5 +1,18 @@
+/* Layer order matters more than import order here.
+ *
+ * MapLibre's stylesheet sets `.maplibregl-map { position: relative }`. Tailwind
+ * v4 emits its utilities inside `@layer utilities`, and unlayered CSS always
+ * beats layered CSS regardless of source order — so MapLibre's rule silently
+ * overrode `absolute` on the map container. With `position: relative` the
+ * `inset-0` offsets no longer size the element, it collapsed to zero height,
+ * and the map rendered as a blank strip while every network request succeeded.
+ *
+ * Importing MapLibre into its own layer, declared before `utilities`, puts the
+ * two back in the expected order. */
+@layer theme, base, maplibre, components, utilities;
+
 @import "tailwindcss";
-@import "maplibre-gl/dist/maplibre-gl.css";
+@import "maplibre-gl/dist/maplibre-gl.css" layer(maplibre);
 
 /* The palette follows Valid's own demo: a very dark desaturated teal ground
    with a violet accent, so this reads as a sibling of their reference app. */

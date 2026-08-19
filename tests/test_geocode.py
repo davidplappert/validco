@@ -49,6 +49,28 @@ class TestNormalizeStreet:
     def test_abbreviations_fold_to_one_key(self, written, canonical):
         assert normalize_street(written) == canonical
 
+    @pytest.mark.parametrize(
+        "written,canonical",
+        [
+            ("N 2nd St", "north 2nd street"),
+            ("N Second St", "north 2nd street"),
+            ("N 02nd St", "north 2nd street"),
+            ("03RD ST", "3rd street"),
+            ("Third Street", "3rd street"),
+            ("12th Ave", "12th avenue"),
+            ("Twelfth Avenue", "12th avenue"),
+        ],
+    )
+    def test_numbered_streets_fold_to_one_key(self, written, canonical):
+        """Overture is not self-consistent about numbered streets.
+
+        Peoria spells them out ("North SECOND Street"), San Francisco zero-pads
+        the digits ("03RD ST"), and users type neither. All three have to reach
+        the same key or a search for a city hall on 2nd Street simply fails —
+        which it did, until this was added.
+        """
+        assert normalize_street(written) == canonical
+
     def test_variants_agree(self):
         """The whole point: what Overture stores and what a user types must meet."""
         assert normalize_street("100 N Main St".split(" ", 1)[1]) == normalize_street(

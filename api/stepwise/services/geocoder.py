@@ -6,8 +6,9 @@ the user's home address off other people's servers, and makes the Overture
 dependency real rather than decorative.
 
 The hard part is not the lookup, it is that people do not type addresses the way
-datasets store them. Overture has "North Main Street"; a user types "708 N
-Main Street, Morton IL".
+datasets store them. Overture has "North Main Street" where a user types "100 N Main St", and is not
+even self-consistent between regions: Peoria spells numbered streets out
+("North SECOND Street") while San Francisco zero-pads them ("03RD ST").
 """
 
 from __future__ import annotations
@@ -61,6 +62,47 @@ class StreetNormalizer:
         "sw": "southwest",
     }
 
+    #: Spelled-out ordinals, mapped to their numeric form.
+    #:
+    #: Overture is not internally consistent about numbered streets, which are
+    #: among the most common street names in North America. Peoria's data
+    #: spells them out — "North SECOND Street" — while San Francisco's
+    #: zero-pads the digits — "03RD ST". A user types neither; they type
+    #: "2nd St" and "3rd St".
+    #:
+    #: All three forms are folded to one canonical key: the unpadded numeric
+    #: ordinal, "2nd" and "3rd". Numeric is the right canonical form because it
+    #: extends to any number, whereas a word table stops wherever it was
+    #: written out to.
+    ORDINAL_WORDS = {
+        "first": "1st",
+        "second": "2nd",
+        "third": "3rd",
+        "fourth": "4th",
+        "fifth": "5th",
+        "sixth": "6th",
+        "seventh": "7th",
+        "eighth": "8th",
+        "ninth": "9th",
+        "tenth": "10th",
+        "eleventh": "11th",
+        "twelfth": "12th",
+        "thirteenth": "13th",
+        "fourteenth": "14th",
+        "fifteenth": "15th",
+        "sixteenth": "16th",
+        "seventeenth": "17th",
+        "eighteenth": "18th",
+        "nineteenth": "19th",
+        "twentieth": "20th",
+        "thirtieth": "30th",
+        "fortieth": "40th",
+        "fiftieth": "50th",
+    }
+
+    #: A zero-padded numeric ordinal, as San Francisco's data writes them.
+    PADDED_ORDINAL = re.compile(r"^0+(\d+(?:st|nd|rd|th))$")
+
     #: Tokens carrying no matching signal once the street is isolated.
     NOISE = {"apt", "unit", "ste", "suite", "no", "number", "#"}
 
@@ -69,12 +111,30 @@ class StreetNormalizer:
 
         Apostrophes are *deleted* rather than replaced with a space, so
         O'Farrell and OFarrell reach the same key. Every other separator becomes
-        a space, so "St.Louis" still splits into two words.
+        a space, so "St.Louis" still splits into two words. Numbered streets fold to
+        a canonical numeric ordinal, so "2nd St", "Second St" and "02nd St" all
+        reach the same key.
         """
         lowered = name.lower().replace("'", "").replace("’", "")
         cleaned = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in lowered)
-        words = [self.ABBREVIATIONS.get(w, w) for w in cleaned.split() if w not in self.NOISE]
+        words = []
+        for word in cleaned.split():
+            if word in self.NOISE:
+                continue
+            word = self._canonical_ordinal(word)
+            words.append(self.ABBREVIATIONS.get(word, word))
         return " ".join(words)
+
+    def _canonical_ordinal(self, word: str) -> str:
+        """Fold any spelling of a numbered street to its canonical form.
+
+        "second", "02nd" and "2nd" all become "2nd". Anything that is not an
+        ordinal passes through untouched.
+        """
+        if word in self.ORDINAL_WORDS:
+            return self.ORDINAL_WORDS[word]
+        padded = self.PADDED_ORDINAL.match(word)
+        return padded.group(1) if padded else word
 
 
 class ParsedAddress:

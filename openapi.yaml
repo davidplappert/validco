@@ -855,6 +855,45 @@ components:
             peak_knee_force_kg: { type: number }
             peak_knee_force_lb: { type: number }
             note: { type: string }
+        weight_projection:
+          type: object
+          description: |
+            Projected body-weight change from repeating this walk.
+
+            Short-run figures use the conventional 3,500 kcal per pound.
+            Longer horizons use Hall et al. (Lancet, 2011), where a sustained
+            10 kcal/day produces about 1 lb of eventual change — the static
+            rule roughly doubles real one-year loss because it ignores the
+            fall in metabolism as weight comes off.
+
+            All figures are based on **net** calories (the cost above resting),
+            and assume eating does not change. Appetite compensation is the
+            largest reason real loss undershoots; it is listed in `caveats`.
+          properties:
+            projections:
+              type: array
+              items:
+                type: object
+                properties:
+                  sessions_per_week: { type: integer, examples: [3, 5, 7] }
+                  weekly_kcal: { type: number }
+                  first_month_lb: { type: number }
+                  one_year_lb: { type: number }
+                  eventual_lb:
+                    type: number
+                    description: Where the projection settles, per Hall's model.
+                  eventual_pct_of_body_weight: { type: number }
+                  meaningful:
+                    type: boolean
+                    description: >
+                      False when the weekly deficit is too small to project
+                      honestly; clients should say so rather than show a number.
+            basis: { type: string, const: net }
+            note: { type: string }
+            method: { type: string }
+            caveats:
+              type: array
+              items: { type: string }
         caveats:
           type: array
           description: |

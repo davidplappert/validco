@@ -56,6 +56,41 @@ export const health: Health = {
     peak_knee_force_lb: 1083,
     note: "Each pound of body weight is about four pounds of knee load per step.",
   },
+  weight_projection: {
+    projections: [
+      {
+        sessions_per_week: 3,
+        weekly_kcal: 555,
+        first_month_lb: 0.6,
+        one_year_lb: 4.0,
+        eventual_lb: 7.9,
+        eventual_pct_of_body_weight: 2.5,
+        meaningful: true,
+      },
+      {
+        sessions_per_week: 5,
+        weekly_kcal: 924,
+        first_month_lb: 1.1,
+        one_year_lb: 6.6,
+        eventual_lb: 13.2,
+        eventual_pct_of_body_weight: 4.1,
+        meaningful: true,
+      },
+      {
+        sessions_per_week: 7,
+        weekly_kcal: 1294,
+        first_month_lb: 1.5,
+        one_year_lb: 9.2,
+        eventual_lb: 18.5,
+        eventual_pct_of_body_weight: 5.8,
+        meaningful: true,
+      },
+    ],
+    basis: "net",
+    note: "Based on the calories this walk costs above resting, assuming what you eat does not change.",
+    method: "Longer horizons use Hall et al. (2011).",
+    caveats: ["Assumes your eating does not change."],
+  },
   caveats: ["Estimates for a healthy adult, not medical advice."],
 };
 

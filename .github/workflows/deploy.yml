@@ -131,7 +131,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, mobile]
+        # The seven viewport projects each run only the responsive spec, so
+        # they are short; chromium and mobile run everything. Listing them here
+        # is the difference between having a responsive suite and having one
+        # that never executes.
+        project:
+          [
+            chromium,
+            mobile,
+            phone-small,
+            phone,
+            tablet-portrait,
+            tablet-landscape,
+            laptop,
+            desktop,
+            desktop-wide,
+          ]
     defaults:
       run:
         working-directory: web

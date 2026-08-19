@@ -29,6 +29,11 @@ export default function RouteCard({
       onClick={onSelect}
       aria-pressed={selected}
       aria-expanded={selected}
+      // The expanded card contains its own controls, so the card needs a name
+      // of its own to stay distinguishable from them.
+      aria-label={`${
+        route.destination ? `Walk to ${route.destination.name}` : "Neighbourhood loop"
+      }, ${Math.round(route.effort.duration_min)} minutes, ${route.effort.distance_mi} miles`}
       className={`animate-fade-up w-full rounded-xl border p-4 text-left transition ${
         selected
           ? "border-accent/70 bg-surface-2 shadow-lg shadow-black/30"
