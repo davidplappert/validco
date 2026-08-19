@@ -21,6 +21,7 @@ default impossible.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -29,6 +30,13 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 #: Directories that are generated, vendored, or binary.
+#:
+#: "data" used to be on this list, to skip the baked ``.spw`` containers — and
+#: because the match is on *any* path component, it silently excluded the whole
+#: of ``data/pipeline/``, which is source. A street name sat in a docstring
+#: there, in a public repository, passing this suite. The containers are
+#: already excluded by ``SUFFIXES`` being an allowlist, so the entry bought
+#: nothing and cost the coverage that mattered.
 SKIP_DIRS = {
     ".git",
     "node_modules",
@@ -42,7 +50,6 @@ SKIP_DIRS = {
     "playwright-report",
     ".ruff_cache",
     ".pytest_cache",
-    "data",
 }
 
 #: Text files worth scanning.
@@ -58,7 +65,11 @@ SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".yaml", ".yml", ".json"
 #: nothing about the residence while forbidding the civic address the form uses
 #: as its default.
 FORBIDDEN: list[tuple[str, str]] = [
-    (r"\bmain\s+(dr|drive)\b", "a private residential street name"),
+    # Bare, not "main (dr|drive)". The narrower form missed "100 N Main"
+    # in a test docstring: the street name and the house number, with the
+    # suffix left off. A street name identifies the residence with or without
+    # the word "Drive" after it.
+    (r"\bmain\b", "a private residential street name"),
     (r"40\.917\d*", "the latitude of a private residence"),
     (r"-89\.502\d*", "the longitude of a private residence"),
     (r"\b361\s*(lb|lbs|pounds)\b", "a real person's body weight"),
@@ -151,3 +162,33 @@ def test_the_default_start_address_is_a_public_building():
         f"the form's default start address should be {DEFAULT_START_ADDRESS} "
         "(Chillicothe City Hall), a building on public record"
     )
+
+
+def test_the_scanner_reaches_the_build_pipeline():
+    """The pipeline is source, and must be scanned like the rest of it.
+
+    ``SKIP_DIRS`` matches on *any* path component, so listing "data" to skip
+    the baked ``.spw`` containers also excluded the whole of ``data/pipeline``.
+    A street name sat in a docstring there, in a public repository, while this
+    suite reported success. The containers never needed the entry — ``SUFFIXES``
+    is an allowlist and does not include ``.spw`` — so it cost coverage and
+    bought nothing.
+    """
+    scanned = {str(p.relative_to(ROOT)) for p in source_files()}
+    assert "data/pipeline/build.py" in scanned
+    assert "data/pipeline/config.py" in scanned
+
+
+def test_no_region_centre_is_a_residence():
+    """A region's centre is where the map opens; it must name a place.
+
+    ``pia`` was centred on a house. Nothing in the app said so — it simply
+    opened on somebody's roof whenever there was no result to show, which is a
+    more public disclosure than a string in a source file.
+    """
+    manifest = json.loads((ROOT / "api" / "stepwise" / "data" / "manifest.json").read_text())
+    for region in manifest["regions"]:
+        latitude, longitude = region["center"]
+        assert not (40.91 < latitude < 40.92 and -89.51 < longitude < -89.50), (
+            f"region {region['key']!r} is centred on a private residence"
+        )

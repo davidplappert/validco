@@ -173,7 +173,13 @@ class TestStreetNormalizer:
 
 class TestAddressParser:
     def test_directional_prefix_survives_the_house_number(self):
-        """Regression: a greedy suffix match once ate the N from 100 N Main."""
+        """Regression: a greedy suffix match once ate the N from "100 N Main St".
+
+        The house-number pattern allowed an optional unit letter separated by a
+        space, so it consumed the directional prefix and searched for "Main
+        Street" — a different street, in the wrong part of town, returned
+        without complaint.
+        """
         parsed = AddressParser().parse("100 N Main St, Morton, IL 61550")
         assert parsed.number == 100
         assert parsed.street_norm == "north main street"

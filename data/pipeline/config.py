@@ -93,7 +93,11 @@ REGIONS: dict[str, Region] = {
         key="pia",
         label="Peoria & Morton, IL",
         bbox=(-89.8000, 40.6000, -89.3000, 41.0000),
-        center=(40.6936, -89.5890),
+        # Peoria County Courthouse. This was a residential coordinate until it
+        # was caught: the region's centre is where the map opens when there is
+        # no result to show, so a house here meant the app opened on somebody's
+        # roof. A region's centre should name the place, not a dwelling in it.
+        center=(40.6936, -89.589),
     ),
 }
 
