@@ -311,9 +311,31 @@ are not any more — they are shared by several thousand people and by the town'
 own public buildings, so the ban described nobody while making a civic default
 address impossible.
 
-**Outstanding:** the git *history* still contains the original address, since
-scrubbing the working tree does not rewrite past commits. Removing it needs a
-history rewrite and a force push — David's call, not to be done unprompted.
+**The history was rewritten**, on David's explicit instruction, with
+`git filter-repo` over every commit and every commit *message*. Verified by
+cloning the published repository fresh and scanning every blob in its object
+database — not `git log -S`, which only sees blobs reachable by a path.
+
+Three things about that are worth keeping:
+
+- **The `.spw` containers are deliberately untouched.** They hold every street
+  and road vertex in the region because that is what Overture publishes; it is
+  public map data, not a disclosure. They are also offset-addressed, so
+  substituting a shorter street name would not redact anything — it would
+  corrupt every array after the edit. The scrub skips any blob starting with
+  the `STEPWISE` magic, which is the same line `tests/test_privacy.py` draws.
+- **The first pass missed the guard file itself.** The rule was `\bstanley\b`,
+  and in a regex literal — `\bstanley\s+...` — the escape's `b` makes
+  "bstanley" one word run, so there is no boundary to match. Word boundaries
+  are the wrong tool for scrubbing source that contains regexes.
+- **Old clones and GitHub's unreferenced objects still hold the old commits**
+  until they are garbage collected. A rewrite is not a recall.
+
+**The guard stores its terms as SHA-256 digests**, because a scanner holding
+the street name in plain text is the leak it exists to prevent. It hashes
+candidate tokens per line and compares digests. That introduces a failure mode
+regexes do not have — a wrong digest passes everything forever, silently — so
+two tests exist purely to prove the detectors fire.
 
 ## If cost were not a constraint
 
@@ -413,6 +435,21 @@ once" — push to `main` and let the workflow do it. A manual deploy skips the
 test gate, can deploy a dirty tree, and makes the deployed SHA a lie. (This was
 violated once, to push a CSP fix quickly; the fix was correct and the shortcut
 was not.)
+
+**Two CI traps already paid for, do not reintroduce either.**
+
+`playwright install --with-deps` runs apt, and apt on these runners has sat on
+an unreachable Ubuntu mirror until the step timed out — three deploys lost that
+way. Caching cannot help: apt installs into the runner, not into
+`~/.cache/ms-playwright`, and every matrix job is a fresh machine. The system
+libraries were never needed — `ubuntu-latest` already ships what Chromium wants
+— so the install asks for the browser and nothing else.
+
+`paths-ignore` silently skips **every** run after a force push. GitHub computes
+the filter by diffing the event's before and after SHAs, and after a history
+rewrite the before SHA no longer exists, so nothing appears to have changed.
+The rewrite landed on `main` and deployed nothing, which looks exactly like a
+green pipeline. Use `workflow_dispatch` after any force push.
 
 Every job carries a `timeout-minutes`, and the deploy concurrency group uses
 `cancel-in-progress: true`. Both exist because a hung end-to-end step once held
