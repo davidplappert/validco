@@ -13,6 +13,16 @@ name: deploy
 on:
   push:
     branches: [main]
+    # Documentation-only pushes do not need a deploy.
+    #
+    # Note what this costs on a *force* push: GitHub evaluates a path filter by
+    # diffing the event's before/after SHAs, and after a history rewrite the
+    # before SHA no longer exists, so nothing appears to have changed and the
+    # run is skipped silently — no run, no failure, no notification. The
+    # history rewrite in this repository landed on main and deployed nothing,
+    # which looked exactly like a green pipeline. Use `workflow_dispatch`
+    # after any force push. (That is still the pipeline deploying, not a
+    # laptop; the hard rule is intact.)
     paths-ignore:
       - "**/*.md"
       - "docs/**"
