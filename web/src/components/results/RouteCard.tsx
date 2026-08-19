@@ -46,10 +46,7 @@ export default function RouteCard({
       <div className="mb-3">
         <RouteStats effort={route.effort} />
       </div>
-      <SurfaceBar
-        breakdown={route.surface_breakdown_pct}
-        labels={route.surface_labels}
-      />
+      <SurfaceBar breakdown={route.surface_breakdown_pct} labels={route.surface_labels} />
       {selected && <RouteDetail route={route} />}
     </button>
   );

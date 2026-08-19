@@ -29,7 +29,11 @@ describe("GuidelineCard", () => {
   it("says so when the pace is too light to count", () => {
     render(
       <GuidelineCard
-        guideline={{ ...health.guideline_progress, counts_as_moderate: false, pct_of_weekly_target: 0 }}
+        guideline={{
+          ...health.guideline_progress,
+          counts_as_moderate: false,
+          pct_of_weekly_target: 0,
+        }}
       />,
     );
     expect(screen.getByText(/this pace counts as light/)).toBeInTheDocument();

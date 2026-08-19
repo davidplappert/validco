@@ -1,0 +1,15 @@
+# Build output and generated files — Prettier has no business reformatting
+# anything it did not author.
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Playwright artefacts. `test-results/` holds traces and screenshots; the
+# report is generated HTML.
+test-results/
+playwright-report/
+
+# Lockfiles are npm's format, not ours.
+package-lock.json

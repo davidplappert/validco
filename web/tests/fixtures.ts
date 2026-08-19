@@ -120,12 +120,24 @@ export const route: Route = {
     type: "LineString",
     coordinates: [
       [-89.4616, 40.6103],
-      [-89.5031, 40.9180],
+      [-89.5031, 40.918],
       [-89.4616, 40.6103],
     ],
     segments: [
-      { surface: "road", coordinates: [[-89.4616, 40.6103], [-89.5031, 40.918]] },
-      { surface: "sidewalk", coordinates: [[-89.5031, 40.918], [-89.4616, 40.6103]] },
+      {
+        surface: "road",
+        coordinates: [
+          [-89.4616, 40.6103],
+          [-89.5031, 40.918],
+        ],
+      },
+      {
+        surface: "sidewalk",
+        coordinates: [
+          [-89.5031, 40.918],
+          [-89.4616, 40.6103],
+        ],
+      },
     ],
   },
   elevation_profile: [

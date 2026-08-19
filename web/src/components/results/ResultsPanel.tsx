@@ -24,11 +24,7 @@ export default function ResultsPanel({
         routeCount={result.routes.length}
         planMs={result.timing_ms.plan}
       />
-      <RouteList
-        routes={result.routes}
-        selectedIndex={selectedIndex}
-        onSelect={onSelect}
-      />
+      <RouteList routes={result.routes} selectedIndex={selectedIndex} onSelect={onSelect} />
       {selected && <Caveats caveats={selected.health.caveats} />}
     </>
   );

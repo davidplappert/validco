@@ -351,35 +351,38 @@ export function useRegionBuilder(options: RegionBuilderOptions = {}): RegionBuil
    * Overture cannot support; asking again therefore has to delete that record
    * first, or the second request returns the same failure immediately.
    */
-  const retry = useCallback((override?: RegionTarget) => {
-    const chosen = override ?? target.current;
-    if (!chosen) return;
-    const failedKey = chosen.key ?? keyRef.current;
-    // A build that came to us as a bare key — from `region_building` or
-    // `region_build_failed`, which name the key and nothing else — has nothing
-    // to POST once the record is deleted. The server's own label for the region
-    // is a place name ("Peoria, IL"), so it is the best re-request we have.
-    const canRequest =
-      Boolean(chosen.place) || (chosen.lat !== undefined && chosen.lon !== undefined);
-    const next: RegionTarget =
-      canRequest || !labelRef.current ? chosen : { ...chosen, place: labelRef.current };
-    // Bump the generation now so an in-flight poll cannot write over the
-    // "clearing" message while the DELETE is on the wire.
-    generation.current += 1;
-    stopTimer();
-    setState("requesting");
-    setError(null);
-    setProgress(0);
-    setMessage("Clearing the failed build…");
-    void (async () => {
-      if (failedKey) {
-        // A failed DELETE is not worth surfacing: the retry either works
-        // anyway or fails again with a message about the build itself.
-        await clearRegion(failedKey).catch(() => undefined);
-      }
-      await start(next);
-    })();
-  }, [start, stopTimer]);
+  const retry = useCallback(
+    (override?: RegionTarget) => {
+      const chosen = override ?? target.current;
+      if (!chosen) return;
+      const failedKey = chosen.key ?? keyRef.current;
+      // A build that came to us as a bare key — from `region_building` or
+      // `region_build_failed`, which name the key and nothing else — has nothing
+      // to POST once the record is deleted. The server's own label for the region
+      // is a place name ("Peoria, IL"), so it is the best re-request we have.
+      const canRequest =
+        Boolean(chosen.place) || (chosen.lat !== undefined && chosen.lon !== undefined);
+      const next: RegionTarget =
+        canRequest || !labelRef.current ? chosen : { ...chosen, place: labelRef.current };
+      // Bump the generation now so an in-flight poll cannot write over the
+      // "clearing" message while the DELETE is on the wire.
+      generation.current += 1;
+      stopTimer();
+      setState("requesting");
+      setError(null);
+      setProgress(0);
+      setMessage("Clearing the failed build…");
+      void (async () => {
+        if (failedKey) {
+          // A failed DELETE is not worth surfacing: the retry either works
+          // anyway or fails again with a message about the build itself.
+          await clearRegion(failedKey).catch(() => undefined);
+        }
+        await start(next);
+      })();
+    },
+    [start, stopTimer],
+  );
 
   return {
     state,

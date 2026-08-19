@@ -109,6 +109,16 @@ export function useSettledValue<T>(value: T, options: SettledOptions<T> = {}): S
   const committed = useRef(value);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The missing dependency array is the design, not an oversight.
+  //
+  // The rule's specific warning is that calling `setPending` with no deps can
+  // loop forever. It cannot here: the effect early-returns whenever `isEqual`
+  // says the value has not moved, and a setState identity is stable across
+  // renders. Taking the rule's advice and passing `[value]` would break the
+  // caller this hook exists for — a form snapshot is a fresh object every
+  // render, so a dependency array would restart the timer on every render and
+  // the debounce would never fire at all.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const { delayMs = TYPING_DELAY_MS, delayFor, isEqual = Object.is } = latestOptions.current;
     if (isEqual(value, seen.current)) return;

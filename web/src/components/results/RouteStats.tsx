@@ -21,11 +21,7 @@ export default function RouteStats({ effort }: { effort: Effort }) {
         value={miles(effort.distance_mi)}
         sub={`${thousands(effort.steps)} steps`}
       />
-      <Stat
-        label="Climb"
-        value={feet(effort.ascent_ft)}
-        sub={`peak ${effort.peak_grade_pct}%`}
-      />
+      <Stat label="Climb" value={feet(effort.ascent_ft)} sub={`peak ${effort.peak_grade_pct}%`} />
       <Stat
         label="Energy"
         value={kcal(effort.kcal_gross)}

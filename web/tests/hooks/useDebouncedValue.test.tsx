@@ -113,8 +113,7 @@ describe("useSettledValue", () => {
   it("uses a different delay depending on what changed", () => {
     // The real reason this hook exists: one form snapshot, one request, but a
     // typed address gets more patience than a nudged number.
-    const delayFor = (next: string) =>
-      /^\d+$/.test(next) ? ADJUSTING_DELAY_MS : TYPING_DELAY_MS;
+    const delayFor = (next: string) => (/^\d+$/.test(next) ? ADJUSTING_DELAY_MS : TYPING_DELAY_MS);
 
     const { result, rerender } = renderHook(({ value }) => useSettledValue(value, { delayFor }), {
       initialProps: { value: "" },
@@ -134,9 +133,12 @@ describe("useSettledValue", () => {
   });
 
   it("reports pending only while a change is waiting", () => {
-    const { result, rerender } = renderHook(({ value }) => useSettledValue(value, { delayMs: 300 }), {
-      initialProps: { value: "a" },
-    });
+    const { result, rerender } = renderHook(
+      ({ value }) => useSettledValue(value, { delayMs: 300 }),
+      {
+        initialProps: { value: "a" },
+      },
+    );
     expect(result.current.pending).toBe(false);
 
     rerender({ value: "ab" });
@@ -148,9 +150,12 @@ describe("useSettledValue", () => {
   });
 
   it("clears pending when the value returns to the settled one", () => {
-    const { result, rerender } = renderHook(({ value }) => useSettledValue(value, { delayMs: 300 }), {
-      initialProps: { value: "a" },
-    });
+    const { result, rerender } = renderHook(
+      ({ value }) => useSettledValue(value, { delayMs: 300 }),
+      {
+        initialProps: { value: "a" },
+      },
+    );
 
     rerender({ value: "ab" });
     expect(result.current.pending).toBe(true);

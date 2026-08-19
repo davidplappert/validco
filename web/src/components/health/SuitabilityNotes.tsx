@@ -10,9 +10,7 @@ import type { Suitability } from "@/lib/types";
 export default function SuitabilityNotes({ suitability }: { suitability: Suitability }) {
   return (
     <div className="rounded-lg bg-ground/60 p-3 text-xs text-ink-dim">
-      <div className="mb-1 font-medium text-ink">
-        Why this fits (score {suitability.score}/100)
-      </div>
+      <div className="mb-1 font-medium text-ink">Why this fits (score {suitability.score}/100)</div>
       <ul className="list-inside list-disc space-y-1">
         {suitability.notes.map((note, index) => (
           <li key={index}>{note}</li>

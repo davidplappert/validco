@@ -20,9 +20,7 @@ export default function HealthPanel({ health }: { health: Health }) {
         <GuidelineCard guideline={health.guideline_progress} />
         <StepsCard steps={health.steps} />
       </div>
-      {health.weight_projection && (
-        <WeightProjectionCard projection={health.weight_projection} />
-      )}
+      {health.weight_projection && <WeightProjectionCard projection={health.weight_projection} />}
       <div className="grid gap-3 @sm:grid-cols-2">
         <EnergyCard energy={health.energy} />
         <JointLoadCard jointLoad={health.joint_load} />

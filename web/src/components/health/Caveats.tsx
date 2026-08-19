@@ -8,7 +8,5 @@
  */
 export default function Caveats({ caveats }: { caveats: string[] }) {
   if (caveats.length === 0) return null;
-  return (
-    <p className="text-[10px] leading-relaxed text-ink-dim">{caveats.join(" ")}</p>
-  );
+  return <p className="text-[10px] leading-relaxed text-ink-dim">{caveats.join(" ")}</p>;
 }

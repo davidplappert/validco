@@ -16,11 +16,7 @@ import type { WeightProjection } from "@/lib/types";
  * - It keeps the assumption visible: these numbers hold only if eating does
  *   not change, and people eat back much of what exercise burns.
  */
-export default function WeightProjectionCard({
-  projection,
-}: {
-  projection: WeightProjection;
-}) {
+export default function WeightProjectionCard({ projection }: { projection: WeightProjection }) {
   const options = projection.projections;
   const [selected, setSelected] = useState(() => {
     // Default to three sessions a week — the usual starting prescription, and
@@ -51,9 +47,7 @@ export default function WeightProjectionCard({
                 setSelected(index);
               }}
               className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums transition ${
-                index === selected
-                  ? "bg-accent/20 text-accent"
-                  : "text-ink-dim hover:text-ink"
+                index === selected ? "bg-accent/20 text-accent" : "text-ink-dim hover:text-ink"
               }`}
             >
               {option.sessions_per_week}×
@@ -70,14 +64,14 @@ export default function WeightProjectionCard({
             <Figure label="Settles at" value={current.eventual_lb} />
           </div>
           <div className="text-xs text-ink-dim">
-            {current.weekly_kcal.toLocaleString("en-US")} kcal a week above resting —
-            about {current.eventual_pct_of_body_weight}% of your body weight, eventually.
+            {current.weekly_kcal.toLocaleString("en-US")} kcal a week above resting — about{" "}
+            {current.eventual_pct_of_body_weight}% of your body weight, eventually.
           </div>
         </>
       ) : (
         <div className="text-xs text-ink-dim">
-          At {current.sessions_per_week}× a week this walk is too short to move the
-          scale on its own — though it still counts toward your steps and heart health.
+          At {current.sessions_per_week}× a week this walk is too short to move the scale on its own
+          — though it still counts toward your steps and heart health.
         </div>
       )}
 
@@ -98,9 +92,7 @@ function Figure({
 }) {
   return (
     <div className="min-w-0">
-      <div className="truncate text-[10px] uppercase tracking-wide text-ink-dim">
-        {label}
-      </div>
+      <div className="truncate text-[10px] uppercase tracking-wide text-ink-dim">{label}</div>
       <div
         className={`truncate tabular-nums ${
           emphasis ? "text-base font-semibold text-accent" : "text-sm font-medium"

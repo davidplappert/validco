@@ -32,8 +32,10 @@ import { controlClass } from "./Field";
  * can only click is a dropdown a keyboard or screen-reader user cannot use at
  * all.
  */
-export interface AddressAutocompleteProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "onSelect"> {
+export interface AddressAutocompleteProps extends Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  "value" | "onChange" | "onSelect"
+> {
   value: string;
   /** Every keystroke, immediately — this component never withholds typing. */
   onValueChange: (value: string) => void;

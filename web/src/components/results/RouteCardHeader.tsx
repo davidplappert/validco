@@ -8,9 +8,7 @@ import FitBadge from "./FitBadge";
  * a walk someone wants to take and "loop 2" is not.
  */
 export default function RouteCardHeader({ route }: { route: Route }) {
-  const title = route.destination
-    ? `Out to ${route.destination.name}`
-    : "Neighbourhood loop";
+  const title = route.destination ? `Out to ${route.destination.name}` : "Neighbourhood loop";
   const shape = route.shape === "loop" ? "Loop" : "Out and back";
 
   return (

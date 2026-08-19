@@ -111,7 +111,12 @@ export function loadConfig(): Promise<Config> {
       })
       .catch((error) => {
         if (process.env.NODE_ENV === "development") {
-          return { apiBaseUrl: "http://127.0.0.1:8000", env: "local", version: "dev", region: "local" };
+          return {
+            apiBaseUrl: "http://127.0.0.1:8000",
+            env: "local",
+            version: "dev",
+            region: "local",
+          };
         }
         throw error;
       });
@@ -198,7 +203,11 @@ export function planWalk(body: PlanRequest): Promise<PlanResponse> {
  * separate function and takes a minute or two. Idempotent, so calling it twice
  * for the same place joins the existing build rather than starting another.
  */
-export function requestRegion(body: { place?: string; lat?: number; lon?: number }): Promise<RegionState> {
+export function requestRegion(body: {
+  place?: string;
+  lat?: number;
+  lon?: number;
+}): Promise<RegionState> {
   return request<RegionState>("/v1/regions", { method: "POST", body: JSON.stringify(body) });
 }
 

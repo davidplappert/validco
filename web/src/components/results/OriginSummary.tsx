@@ -23,8 +23,8 @@ export default function OriginSummary({
     <div className="rounded-lg border border-line bg-surface p-3 text-xs text-ink-dim">
       <div className="text-ink">{origin.label ?? "Your start"}</div>
       <div className="mt-1">
-        BMI {profile.bmi} ({profile.bmi_class}) · comfortable pace{" "}
-        {profile.baseline_speed_mph} mph · resting {profile.rmr_kcal_day} kcal/day
+        BMI {profile.bmi} ({profile.bmi_class}) · comfortable pace {profile.baseline_speed_mph} mph
+        · resting {profile.rmr_kcal_day} kcal/day
       </div>
       <div className="mt-1">
         Snapped {origin.snap_distance_m} m to the walking network · {routeCount} routes in{" "}

@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  clampPercent,
-  feet,
-  humanise,
-  kcal,
-  miles,
-  minutes,
-  pace,
-  thousands,
-} from "@/lib/format";
+import { clampPercent, feet, humanise, kcal, miles, minutes, pace, thousands } from "@/lib/format";
 
 describe("format", () => {
   it("adds thousands separators", () => {

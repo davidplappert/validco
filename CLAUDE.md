@@ -91,6 +91,11 @@ cd web && npm run test:e2e                # 108 Playwright tests (needs `npm run
 cd web && npm run test:all                # typecheck + unit + build + e2e
 cd web && npm run build                   # emits web/out/ for CDK to upload
 
+# `build` passes --no-lint on purpose. Next 15 runs ESLint during `next build`
+# once ESLint is installed, so configuring it turned a lint finding into a
+# build failure. Linting is its own step (`npm run lint`) and its own CI step;
+# the build still type-checks.
+
 # Rebuild the datasets from Overture (~60s cold; parquet cache makes reruns fast)
 uv run python -m data.pipeline build
 uv run python -m data.pipeline build --region sf -v

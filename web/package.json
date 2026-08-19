@@ -2,12 +2,15 @@
   "name": "stepwise-web",
   "version": "0.1.0",
   "private": true,
-  "description": "StepWise frontend \u2014 Next.js static export, deployed to S3 + CloudFront",
+  "description": "StepWise frontend — Next.js static export, deployed to S3 + CloudFront",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --no-lint",
     "start": "npx serve out",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,6 +26,7 @@
     "react-dom": "19.1.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.1.13",
     "@testing-library/jest-dom": "^7.0.1",
@@ -33,11 +37,15 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.4",
+    "eslint-config-prettier": "^10.1.8",
     "jsdom": "^30.0.1",
     "postcss": "^8.5.6",
+    "prettier": "^3.9.6",
+    "serve": "^14.2.4",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.7",
-    "vitest": "^4.1.11",
-    "serve": "^14.2.4"
+    "vitest": "^4.1.11"
   }
 }

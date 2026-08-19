@@ -15,8 +15,8 @@ export default function GuidelineCard({ guideline }: { guideline: GuidelineProgr
         />
       </div>
       <div className="text-xs text-ink-dim">
-        {guideline.pct_of_weekly_target}% of the WHO{" "}
-        {guideline.who_weekly_moderate_min} min/week of moderate activity
+        {guideline.pct_of_weekly_target}% of the WHO {guideline.who_weekly_moderate_min} min/week of
+        moderate activity
         {/* Saying so explicitly matters: claiming guideline credit for a walk
             below the moderate threshold would misrepresent the guideline. */}
         {!guideline.counts_as_moderate && " (this pace counts as light)"}

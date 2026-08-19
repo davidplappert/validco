@@ -3,3 +3,9 @@ node_modules/
 out/
 next-env.d.ts
 *.tsbuildinfo
+
+# Playwright run output — artifacts, traces, screenshots.
+test-results/
+playwright-report/
+blob-report/
+.playwright-artifacts-*/

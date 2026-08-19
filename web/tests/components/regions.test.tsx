@@ -43,7 +43,15 @@ describe("RegionProgress", () => {
   });
 
   it("announces itself politely, without stealing focus", () => {
-    render(<RegionProgress label="Cupertino, CA" state="building" progress={0.1} stage="graph" message="" />);
+    render(
+      <RegionProgress
+        label="Cupertino, CA"
+        state="building"
+        progress={0.1}
+        stage="graph"
+        message=""
+      />,
+    );
     const status = screen.getByRole("status", { name: "Building coverage" });
     expect(status).toHaveAttribute("aria-live", "polite");
   });
@@ -64,12 +72,28 @@ describe("RegionProgress", () => {
   });
 
   it("falls back to the stage when the server sent no message", () => {
-    render(<RegionProgress label="Cupertino, CA" state="building" progress={0} stage="addresses" message="" />);
+    render(
+      <RegionProgress
+        label="Cupertino, CA"
+        state="building"
+        progress={0}
+        stage="addresses"
+        message=""
+      />,
+    );
     expect(screen.getByText("Downloading addresses")).toBeInTheDocument();
   });
 
   it("says the wait is a one-off", () => {
-    render(<RegionProgress label="Cupertino, CA" state="building" progress={0.2} stage="graph" message="Working" />);
+    render(
+      <RegionProgress
+        label="Cupertino, CA"
+        state="building"
+        progress={0.2}
+        stage="graph"
+        message="Working"
+      />,
+    );
     expect(screen.getByText(/runs once for this area/i)).toBeInTheDocument();
     expect(screen.getByText(/loads instantly/i)).toBeInTheDocument();
   });
@@ -120,7 +144,13 @@ describe("RegionGate", () => {
 
   it("renders nothing when there is nothing wrong", () => {
     const { container } = render(
-      <RegionGate error={null} builder={builder()} regions={regions} onAddRegion={vi.fn()} onRetryRegion={vi.fn()} />,
+      <RegionGate
+        error={null}
+        builder={builder()}
+        regions={regions}
+        onAddRegion={vi.fn()}
+        onRetryRegion={vi.fn()}
+      />,
     );
     expect(container).toBeEmptyDOMElement();
   });
@@ -146,7 +176,13 @@ describe("RegionGate", () => {
     render(
       <RegionGate
         error={notCovered}
-        builder={builder({ state: "building", label: "Cupertino, CA", progress: 0.5, stage: "graph", message: "Building the walking network…" })}
+        builder={builder({
+          state: "building",
+          label: "Cupertino, CA",
+          progress: 0.5,
+          stage: "graph",
+          message: "Building the walking network…",
+        })}
         regions={regions}
         onAddRegion={vi.fn()}
         onRetryRegion={vi.fn()}
@@ -159,7 +195,11 @@ describe("RegionGate", () => {
   it("shows nothing for region_building until the watch takes over", () => {
     const { container } = render(
       <RegionGate
-        error={{ message: "still building", code: "region_building", action: { kind: "poll_region", label: "Watch progress", key: "cupertino_ca" } }}
+        error={{
+          message: "still building",
+          code: "region_building",
+          action: { kind: "poll_region", label: "Watch progress", key: "cupertino_ca" },
+        }}
         builder={builder()}
         regions={regions}
         onAddRegion={vi.fn()}
@@ -174,7 +214,12 @@ describe("RegionGate", () => {
     const action = { kind: "retry_region" as const, label: "Try again", key: "cupertino_ca" };
     render(
       <RegionGate
-        error={{ message: "previously failed", code: "region_build_failed", title: "We couldn't prepare that area", action }}
+        error={{
+          message: "previously failed",
+          code: "region_build_failed",
+          title: "We couldn't prepare that area",
+          action,
+        }}
         builder={builder()}
         regions={regions}
         onAddRegion={vi.fn()}

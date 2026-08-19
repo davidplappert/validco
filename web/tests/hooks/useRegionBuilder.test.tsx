@@ -56,12 +56,17 @@ function stubFetch(options: {
       calls.push({ method, url, at: Date.now() });
 
       if (method === "POST") {
-        return new Response(JSON.stringify(options.post ?? region({ state: "pending", progress: 0 })), {
-          status: options.postStatus ?? 202,
-        });
+        return new Response(
+          JSON.stringify(options.post ?? region({ state: "pending", progress: 0 })),
+          {
+            status: options.postStatus ?? 202,
+          },
+        );
       }
       if (method === "DELETE") {
-        return new Response(JSON.stringify({ key: "cupertino_ca", cleared: true }), { status: 200 });
+        return new Response(JSON.stringify({ key: "cupertino_ca", cleared: true }), {
+          status: 200,
+        });
       }
       if (options.getStatus && options.getStatus >= 400) {
         return new Response(JSON.stringify({ error: "gone", code: "not_found" }), {
@@ -273,7 +278,10 @@ describe("useRegionBuilder", () => {
 
   it("clears the failed build before retrying it", async () => {
     const calls = stubFetch({
-      gets: [region({ state: "failed", error: "timed out" }), region({ state: "ready", progress: 1 })],
+      gets: [
+        region({ state: "failed", error: "timed out" }),
+        region({ state: "ready", progress: 1 }),
+      ],
     });
     const { result } = renderHook(() => useRegionBuilder());
     act(() => result.current.request("Cupertino, CA"));
@@ -335,7 +343,10 @@ describe("useRegionBuilder", () => {
   it("ignores stored junk rather than throwing on it", () => {
     window.localStorage.setItem(STORAGE_KEY, "{not json");
     expect(loadKnownRegions()).toEqual([]);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify([{ nope: true }, { key: "a", label: "A" }]));
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([{ nope: true }, { key: "a", label: "A" }]),
+    );
     expect(loadKnownRegions()).toEqual([{ key: "a", label: "A" }]);
   });
 });

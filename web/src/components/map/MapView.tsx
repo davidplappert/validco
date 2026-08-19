@@ -108,10 +108,14 @@ export default function MapView({ route, origin, center }: Props) {
           "line-color": [
             "match",
             ["get", "surface"],
-            "path", surfaceColour("path"),
-            "sidewalk", surfaceColour("sidewalk"),
-            "crossing", surfaceColour("crossing"),
-            "road", surfaceColour("road"),
+            "path",
+            surfaceColour("path"),
+            "sidewalk",
+            surfaceColour("sidewalk"),
+            "crossing",
+            surfaceColour("crossing"),
+            "road",
+            surfaceColour("road"),
             surfaceColour("unknown"),
           ],
           "line-width": 4.5,
@@ -222,5 +226,12 @@ export default function MapView({ route, origin, center }: Props) {
     else map.once("load", apply);
   }, [route, origin]);
 
-  return <div ref={containerRef} className="absolute inset-0" aria-label="Route map" role="application" />;
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0"
+      aria-label="Route map"
+      role="application"
+    />
+  );
 }

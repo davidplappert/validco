@@ -23,27 +23,31 @@ describe("api client", () => {
   afterEach(() => resetConfig());
 
   it("reads the API base URL from config.json", async () => {
-    vi.stubGlobal("fetch", stubFetch(() => new Response("{}", { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(() => new Response("{}", { status: 200 })),
+    );
     await expect(loadConfig()).resolves.toMatchObject({ apiBaseUrl: "https://api.test" });
   });
 
   it("fetches config.json only once across many calls", async () => {
     const fetchMock = stubFetch(
-      () => new Response(JSON.stringify({ regions, default: "sf", attribution: "" }), { status: 200 }),
+      () =>
+        new Response(JSON.stringify({ regions, default: "sf", attribution: "" }), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     await getRegions();
     await getRegions();
 
-    const configCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/config.json"));
+    const configCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/config.json"),
+    );
     expect(configCalls).toHaveLength(1);
   });
 
   it("posts the plan request to the configured base URL", async () => {
-    const fetchMock = stubFetch(
-      () => new Response(JSON.stringify(planResponse), { status: 200 }),
-    );
+    const fetchMock = stubFetch(() => new Response(JSON.stringify(planResponse), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await planWalk({
@@ -71,7 +75,8 @@ describe("api client", () => {
       vi.stubGlobal(
         "fetch",
         stubFetch(
-          () => new Response(JSON.stringify({ error: "could not find that address" }), { status: 404 }),
+          () =>
+            new Response(JSON.stringify({ error: "could not find that address" }), { status: 404 }),
         ),
       );
       await expect(
@@ -80,11 +85,18 @@ describe("api client", () => {
           minutes: 30,
           profile: { sex: "male", age: 33, weight_lb: 200 },
           preferences: {
-            prefer_paths: true, avoid_hills: false, avoid_stairs: false,
-            avoid_busy_roads: true, prefer_green: false,
+            prefer_paths: true,
+            avoid_hills: false,
+            avoid_stairs: false,
+            avoid_busy_roads: true,
+            prefer_green: false,
           },
         }),
-      ).rejects.toMatchObject({ name: "ApiError", status: 404, message: "could not find that address" });
+      ).rejects.toMatchObject({
+        name: "ApiError",
+        status: 404,
+        message: "could not find that address",
+      });
     });
 
     it("flattens per-region street suggestions into one list", () => {
@@ -99,7 +111,10 @@ describe("api client", () => {
     });
 
     it("falls back to a generic message when the body has no error field", async () => {
-      vi.stubGlobal("fetch", stubFetch(() => new Response("null", { status: 500 })));
+      vi.stubGlobal(
+        "fetch",
+        stubFetch(() => new Response("null", { status: 500 })),
+      );
       await expect(getRegions()).rejects.toMatchObject({ status: 500 });
     });
   });

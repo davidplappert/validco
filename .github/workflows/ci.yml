@@ -125,6 +125,19 @@ jobs:
           path: web/out
           retention-days: 1
 
+      # Deliberately last. A step failure ends the job, and `e2e` needs this
+      # job, so wherever these sit a lint failure skips the browser matrix.
+      # Putting them after the build at least means one run reports the type
+      # errors, the test failures *and* the lint findings, rather than a
+      # formatting nit hiding everything behind it.
+      #
+      # Blocking here, unlike in deploy.yml: a red pull request blocks a merge,
+      # which is the correct amount of pressure, and costs no deployment.
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+
   e2e:
     timeout-minutes: 12
     name: e2e (${{ matrix.name }})

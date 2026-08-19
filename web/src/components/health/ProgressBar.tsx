@@ -7,13 +7,7 @@ import { clampPercent } from "@/lib/format";
  * indication of progress, and the underlying percentage is genuinely the
  * information — not decoration.
  */
-export default function ProgressBar({
-  percent,
-  label,
-}: {
-  percent: number;
-  label: string;
-}) {
+export default function ProgressBar({ percent, label }: { percent: number; label: string }) {
   const width = clampPercent(percent);
   return (
     <div
@@ -24,7 +18,10 @@ export default function ProgressBar({
       aria-valuemax={100}
       className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2"
     >
-      <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${width}%` }} />
+      <div
+        className="h-full bg-accent transition-[width] duration-500"
+        style={{ width: `${width}%` }}
+      />
     </div>
   );
 }
