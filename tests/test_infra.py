@@ -8,10 +8,15 @@ quietly shipping.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import aws_cdk as cdk
 import pytest
 from aws_cdk.assertions import Match, Template
+from bundle import build as build_builder_bundle
 from validco_infra.stack import StepWiseStack
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +34,148 @@ def template() -> Template:
         env=cdk.Environment(account="123456789012", region="us-east-1"),
     )
     return Template.from_stack(stack)
+
+
+@pytest.fixture(scope="module")
+def builder_template(tmp_path_factory) -> Template:
+    """The stack with the region builder included.
+
+    Kept apart from ``template`` because the builder is optional — ``cdk synth``
+    can skip staging its native wheels — and because staging the package, even
+    without downloading dependencies, costs a file copy the other tests do not
+    need. The dependency install is off: this asserts about the template, not
+    about pip.
+    """
+    staging = build_builder_bundle(
+        ROOT, tmp_path_factory.mktemp("builder") / "bundle", install_dependencies=False
+    )
+    app = cdk.App()
+    stack = StepWiseStack(
+        app,
+        "stepwise-test-builder",
+        env_name="dev",
+        api_dir="api",
+        web_dir=None,
+        builder_dir=str(staging),
+        app_version="test",
+        log_level="DEBUG",
+        env=cdk.Environment(account="123456789012", region="us-east-1"),
+    )
+    return Template.from_stack(stack)
+
+
+def _function_with(template: Template, variable: str) -> dict:
+    """The one Lambda whose environment carries a given variable."""
+    matches = [
+        properties["Properties"]
+        for properties in template.find_resources("AWS::Lambda::Function").values()
+        if variable in properties["Properties"].get("Environment", {}).get("Variables", {})
+    ]
+    assert len(matches) == 1, f"expected exactly one function with {variable}, got {len(matches)}"
+    return matches[0]
+
+
+class TestRegionBuilder:
+    """The on-demand builder's wiring.
+
+    Every assertion here corresponds to something that broke, or would have
+    broken silently, on the first real on-demand build.
+    """
+
+    def test_the_builder_knows_which_bucket_to_publish_to(self, builder_template):
+        """The bug that stopped the first build.
+
+        Without REGION_BUCKET the builder's catalogue is disabled: progress
+        writes vanish, the completion write vanishes, and the upload dies on an
+        empty bucket name after the extraction has already run.
+        """
+        builders = [
+            properties["Properties"]
+            for properties in builder_template.find_resources("AWS::Lambda::Function").values()
+            if properties["Properties"].get("Handler") == "handler.handler"
+        ]
+        assert len(builders) == 1
+        assert "REGION_BUCKET" in builders[0]["Environment"]["Variables"]
+
+    def test_both_functions_share_one_region_bucket(self, builder_template):
+        """A cache split across two buckets is not a cache."""
+        buckets = {
+            properties["Properties"]["Environment"]["Variables"]["REGION_BUCKET"]["Ref"]
+            for properties in builder_template.find_resources("AWS::Lambda::Function").values()
+            if "REGION_BUCKET"
+            in properties["Properties"].get("Environment", {}).get("Variables", {})
+        }
+        assert len(buckets) == 1, "the API and the builder must reference the same bucket"
+
+    def test_the_api_is_told_which_function_to_invoke(self, builder_template):
+        api = _function_with(builder_template, "BUILDER_FUNCTION_NAME")
+        assert api["MemorySize"] == 512, "the invoker is the request-path function"
+
+    def test_the_builder_can_write_to_the_region_bucket(self, builder_template):
+        """It uploads four containers and rewrites status.json throughout.
+
+        Scoped to the builder's *own* role rather than to any policy in the
+        template: the API function has the same grant, so a template-wide search
+        would pass even with the builder holding nothing.
+        """
+        functions = builder_template.find_resources("AWS::Lambda::Function")
+        builder = next(
+            properties
+            for properties in functions.values()
+            if properties["Properties"].get("Handler") == "handler.handler"
+        )
+        role = builder["Properties"]["Role"]["Fn::GetAtt"][0]
+
+        actions: list[str] = []
+        for policy in builder_template.find_resources("AWS::IAM::Policy").values():
+            attached = {r.get("Ref") for r in policy["Properties"].get("Roles", [])}
+            if role not in attached:
+                continue
+            for statement in policy["Properties"]["PolicyDocument"]["Statement"]:
+                action = statement["Action"]
+                actions.extend(action if isinstance(action, list) else [action])
+
+        assert "s3:PutObject" in actions, "the builder must be able to publish containers"
+        assert any(a.startswith("s3:GetObject") for a in actions), (
+            "the builder reads the status document the API claimed"
+        )
+
+    def test_the_builder_has_room_and_time_for_an_extraction(self, builder_template):
+        """Extraction is minutes of CPU-bound work over hundreds of MB."""
+        builder_template.has_resource_properties(
+            "AWS::Lambda::Function",
+            Match.object_like(
+                {
+                    "Handler": "handler.handler",
+                    "MemorySize": 3008,
+                    "Timeout": 840,
+                    "EphemeralStorage": {"Size": 2048},
+                }
+            ),
+        )
+
+    def test_the_builder_has_a_writable_home_for_duckdb(self, builder_template):
+        """DuckDB downloads spatial and httpfs on first use; only /tmp is writable."""
+        builder_template.has_resource_properties(
+            "AWS::Lambda::Function",
+            Match.object_like(
+                {
+                    "Handler": "handler.handler",
+                    "Environment": {"Variables": Match.object_like({"HOME": "/tmp"})},
+                }
+            ),
+        )
+
+    def test_the_builder_function_name_is_published(self, builder_template):
+        """Needed to tail its logs and to invoke it by hand."""
+        assert "BuilderFunctionName" in builder_template.find_outputs("*")
+
+    def test_concurrent_extractions_are_bounded(self, builder_template):
+        """Overture's bucket is a shared public resource."""
+        builder_template.has_resource_properties(
+            "AWS::Lambda::Function",
+            Match.object_like({"Handler": "handler.handler", "ReservedConcurrentExecutions": 3}),
+        )
 
 
 class TestLambda:

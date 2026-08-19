@@ -73,16 +73,23 @@ jobs:
         # Split across runners so the slowest suite sets the pace rather than
         # their sum, and so a failure names the layer that broke.
         include:
+          # tests/test_workflows.py fails if a test file is missing from this
+          # list, in either workflow. Three files were silently unrun before it
+          # existed, and enumeration is otherwise a trap that springs quietly.
           - suite: unit
             paths: >-
               tests/test_physiology.py tests/test_models.py tests/test_health.py
               tests/test_container.py tests/test_geocode.py tests/test_http.py
+              tests/test_suggest.py
           - suite: integration
-            paths: tests/test_services.py tests/test_api.py tests/test_performance.py
+            paths: >-
+              tests/test_services.py tests/test_api.py tests/test_performance.py
+              tests/test_place.py
           - suite: infra-security
             paths: >-
               tests/test_infra.py tests/test_security.py tests/test_openapi.py
-              tests/test_privacy.py
+              tests/test_privacy.py tests/test_regions.py
+              tests/test_workflows.py
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v5

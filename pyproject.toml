@@ -34,8 +34,10 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # `api` for the runtime package, `infra` for the CDK stack the infra tests
-# synthesise. Both are source roots rather than installed packages.
-pythonpath = ["api", "infra"]
+# synthesise, `builder` for the region extractor's own modules. All three are
+# source roots rather than installed packages, and `builder` is laid out the
+# way its Lambda bundle is — flat, with `place` importable as a top-level name.
+pythonpath = ["api", "infra", "builder"]
 addopts = "-q --strict-markers"
 filterwarnings = [
     "error::DeprecationWarning:stepwise.*",

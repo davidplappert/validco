@@ -131,25 +131,111 @@ _FULL_STATE_NAMES = {
     "district of columbia": "DC",
 }
 
+#: ISO 3166-1 alpha-2 codes and the English names people type for them.
+#:
+#: Held as a compact literal rather than a two-hundred-line dictionary because
+#: these names are data, not logic, and spelling them out one per line would
+#: bury the twenty lines of parsing this module actually does.
+#:
+#: Format: ``CODE name[,alias,alias]``, one country per semicolon-separated
+#: entry. Only sovereign states and the territories Overture keys separately are
+#: listed; anything missing simply falls through to the candidate search.
+_COUNTRY_LITERAL = """
+AD andorra; AE united arab emirates,uae; AF afghanistan; AG antigua and barbuda;
+AL albania; AM armenia; AO angola; AR argentina; AT austria; AU australia;
+AZ azerbaijan; BA bosnia and herzegovina,bosnia; BB barbados; BD bangladesh;
+BE belgium; BF burkina faso; BG bulgaria; BH bahrain; BI burundi; BJ benin;
+BN brunei; BO bolivia; BR brazil; BS bahamas,the bahamas; BT bhutan; BW botswana;
+BY belarus; BZ belize; CA canada; CD democratic republic of the congo,drc;
+CF central african republic; CG republic of the congo,congo; CH switzerland;
+CI ivory coast,cote d'ivoire; CL chile; CM cameroon; CN china; CO colombia;
+CR costa rica; CU cuba; CV cape verde; CY cyprus; CZ czechia,czech republic;
+DE germany; DJ djibouti; DK denmark; DM dominica; DO dominican republic;
+DZ algeria; EC ecuador; EE estonia; EG egypt; ER eritrea; ES spain; ET ethiopia;
+FI finland; FJ fiji; FM micronesia; FR france; GA gabon;
+GB united kingdom,uk,great britain,britain,england,scotland,wales;
+GD grenada; GE georgia; GH ghana; GM gambia; GN guinea; GQ equatorial guinea;
+GR greece; GT guatemala; GW guinea-bissau; GY guyana; HK hong kong; HN honduras;
+HR croatia; HT haiti; HU hungary; ID indonesia; IE ireland; IL israel; IN india;
+IQ iraq; IR iran; IS iceland; IT italy; JM jamaica; JO jordan; JP japan;
+KE kenya; KG kyrgyzstan; KH cambodia; KI kiribati; KM comoros; KN saint kitts and nevis;
+KP north korea; KR south korea,korea; KW kuwait; KZ kazakhstan; LA laos;
+LB lebanon; LC saint lucia; LI liechtenstein; LK sri lanka; LR liberia;
+LS lesotho; LT lithuania; LU luxembourg; LV latvia; LY libya; MA morocco;
+MC monaco; MD moldova; ME montenegro; MG madagascar; MH marshall islands;
+MK north macedonia,macedonia; ML mali; MM myanmar,burma; MN mongolia; MO macau;
+MR mauritania; MT malta; MU mauritius; MV maldives; MW malawi; MX mexico;
+MY malaysia; MZ mozambique; NA namibia; NE niger; NG nigeria; NI nicaragua;
+NL netherlands,the netherlands,holland; NO norway; NP nepal; NR nauru;
+NZ new zealand; OM oman; PA panama; PE peru; PG papua new guinea;
+PH philippines,the philippines; PK pakistan; PL poland; PR puerto rico;
+PT portugal; PW palau; PY paraguay; QA qatar; RO romania; RS serbia; RU russia;
+RW rwanda; SA saudi arabia; SB solomon islands; SC seychelles; SD sudan;
+SE sweden; SG singapore; SI slovenia; SK slovakia; SL sierra leone; SM san marino;
+SN senegal; SO somalia; SR suriname; SS south sudan; ST sao tome and principe;
+SV el salvador; SY syria; SZ eswatini,swaziland; TD chad; TG togo; TH thailand;
+TJ tajikistan; TL timor-leste,east timor; TM turkmenistan; TN tunisia; TO tonga;
+TR turkey,turkiye; TT trinidad and tobago; TV tuvalu; TW taiwan; TZ tanzania;
+UA ukraine; UG uganda; UY uruguay; UZ uzbekistan; VA vatican city;
+VC saint vincent and the grenadines;
+VE venezuela; VN vietnam; VU vanuatu; WS samoa; YE yemen; ZA south africa;
+ZM zambia; ZW zimbabwe
+"""
+
+
+def _country_index() -> dict[str, str]:
+    """Expand the compact country literal into a name/code lookup."""
+    index: dict[str, str] = {}
+    for entry in _COUNTRY_LITERAL.replace("\n", " ").split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        code, _, names = entry.partition(" ")
+        index[code.lower()] = code
+        for name in names.split(","):
+            if name.strip():
+                index[name.strip()] = code
+    return index
+
+
+_COUNTRIES = _country_index()
+
+#: Ways of writing the United States. Kept separate because they resolve to a
+#: country *and* leave the state slot open for the field before them.
+_US_ALIASES = ("us", "usa", "united states", "united states of america", "america")
+
 _ZIP = re.compile(r"\b\d{5}(?:-\d{4})?\b")
 _STREET_NUMBER = re.compile(r"^\s*\d+[A-Za-z]?\s+")
 
 
 class ParsedPlace:
-    """A place query split into the parts that narrow a divisions lookup."""
+    """A place query split into the parts that narrow a divisions lookup.
 
-    __slots__ = ("raw", "name", "state", "country")
+    ``candidates`` holds every field that could be the locality, best guess
+    first; ``name`` is simply the first of them. See :meth:`PlaceParser.parse`
+    for why one guess is not enough.
+    """
 
-    def __init__(self, raw: str, name: str, state: str | None, country: str | None):
+    __slots__ = ("raw", "candidates", "state", "country")
+
+    def __init__(self, raw: str, candidates: list[str], state: str | None, country: str | None):
         """Store the query alongside what could be extracted from it."""
         self.raw = raw
-        self.name = name
+        self.candidates = candidates
         self.state = state
         self.country = country
 
+    @property
+    def name(self) -> str:
+        """The most likely locality — the first candidate, or empty."""
+        return self.candidates[0] if self.candidates else ""
+
     def __repr__(self) -> str:
         """Compact representation for logs and test failures."""
-        return f"ParsedPlace(name={self.name!r}, state={self.state!r}, country={self.country!r})"
+        return (
+            f"ParsedPlace(name={self.name!r}, state={self.state!r}, "
+            f"country={self.country!r}, candidates={self.candidates!r})"
+        )
 
 
 class PlaceParser:
@@ -161,7 +247,29 @@ class PlaceParser:
     """
 
     def parse(self, query: str) -> ParsedPlace:
-        """Extract the locality and any state or country qualifier."""
+        """Extract the locality candidates and any state or country qualifier.
+
+        The last comma-separated field is the best guess at the locality,
+        because an address reads "street, city" and a bare place reads just
+        "city". "Paris, France" reads the same way and its last field is a
+        country, so trailing countries are recognised and stripped first, and
+        whatever is left is kept as an *ordered list* of candidates rather than
+        a single answer.
+
+        Both halves are load-bearing, and each was a real wrong answer:
+
+        * Without the country table, "Kyoto, Japan" matches the locality
+          genuinely named **Japan** in East Java, exactly.
+        * Without the candidate list, a country the table does not know sends
+          the search after a locality by that name — which is how "Paris,
+          France" once resolved, via the prefix fallback, to **Frances, South
+          Australia**.
+
+        States are matched before two-letter country codes on purpose: ``IL``
+        is both Illinois and Israel, and ``IN`` both Indiana and India. For a
+        product whose coverage starts in the United States, the state reading
+        is the right default.
+        """
         raw = (query or "").strip()
         cleaned = _ZIP.sub("", raw).strip().strip(",")
 
@@ -169,13 +277,8 @@ class PlaceParser:
         country: str | None = None
         state: str | None = None
 
-        # A trailing country, if it is one we can recognise.
-        if parts and parts[-1].lower() in (
-            "us",
-            "usa",
-            "united states",
-            "united states of america",
-        ):
+        # A trailing "USA", which still leaves a state to find in front of it.
+        if parts and parts[-1].lower() in _US_ALIASES:
             country = "US"
             parts.pop()
 
@@ -189,14 +292,24 @@ class PlaceParser:
                 state, country = _FULL_STATE_NAMES[tail], country or "US"
                 parts.pop()
 
-        # Whatever remains: the last field is the locality, because an address
-        # reads "street, city" and a bare place reads just "city".
-        name = parts[-1] if parts else cleaned
-        # Drop a leading house number, so "100 N Main St" does not become a
-        # locality search for a street.
-        name = _STREET_NUMBER.sub("", name).strip()
+        # A trailing country anywhere else in the world. Only consulted when no
+        # state was found, so "Springfield, IL" stays in Illinois.
+        if parts and state is None and country is None:
+            tail = parts[-1].lower().strip(".")
+            if tail in _COUNTRIES:
+                country = _COUNTRIES[tail]
+                parts.pop()
 
-        parsed = ParsedPlace(raw, name, state, country)
+        # Reversed, so the last field is tried first. Each candidate loses any
+        # leading house number, so "100 N Main St" does not become a locality
+        # search for a street.
+        candidates: list[str] = []
+        for part in reversed(parts or [cleaned]):
+            candidate = _STREET_NUMBER.sub("", part).strip()
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        parsed = ParsedPlace(raw, candidates, state, country)
         LOG.info("parsed place query=%r -> %r", raw, parsed)
         return parsed
 
@@ -213,16 +326,46 @@ class PlaceResolver:
     def resolve_name(self, query: str) -> dict | None:
         """Find the best-matching division for a place name.
 
-        Matching is case-insensitive and tries an exact name first, then a
-        prefix. Results are ordered by subtype preference and then by area, so
-        "Austin" in Texas beats the several much smaller Austins elsewhere.
+        Matching is case-insensitive. Every locality candidate is tried as an
+        exact name first, in order of likelihood; only when all of them miss
+        does a prefix match on the best guess get a look in. That ordering is
+        load-bearing — an exact match on a *later* candidate is far better
+        evidence than a fuzzy match on the first one, which is how "Paris,
+        France" used to come back as "Frances, South Australia".
+
+        Results are ordered by subtype preference and then by area, so "Austin"
+        in Texas beats the several much smaller Austins elsewhere.
         """
         parsed = self.parser.parse(query)
-        if not parsed.name:
+        if not parsed.candidates:
             return None
 
-        filters = ["lower(names.primary) = lower(?)"]
-        params: list[str] = [parsed.name]
+        subtypes = ", ".join(f"'{s}'" for s in PLACE_SUBTYPES)
+        for candidate in parsed.candidates:
+            rows = self._exact_search(candidate, parsed, subtypes)
+            if rows:
+                return self._describe(rows[0])
+
+        LOG.info("no exact division match for %r, trying prefix", parsed.name)
+        rows = self._prefix_search(parsed, subtypes)
+        if not rows:
+            return None
+        return self._describe(rows[0])
+
+    def _exact_search(self, candidate: str, parsed: ParsedPlace, subtypes: str) -> list:
+        """Look one locality name up exactly, within any state or country given.
+
+        Accents are folded on both sides, because Overture stores the endonym —
+        "Zürich", "Malmö", "São Paulo" — and nobody types the diaeresis. The
+        folded comparison rides along in the same query rather than running as a
+        second pass: there is no index to exploit either way, so a second
+        attempt would mean scanning the whole divisions theme twice.
+        """
+        filters = [
+            "(lower(names.primary) = lower(?)"
+            " OR lower(strip_accents(names.primary)) = lower(strip_accents(?)))"
+        ]
+        params: list[str] = [candidate, candidate]
         if parsed.country:
             filters.append("country = ?")
             params.append(parsed.country)
@@ -230,7 +373,6 @@ class PlaceResolver:
             filters.append("region = ?")
             params.append(f"{parsed.country or 'US'}-{parsed.state}")
 
-        subtypes = ", ".join(f"'{s}'" for s in PLACE_SUBTYPES)
         # `array_position` orders by how specific the subtype is, so a locality
         # is preferred over the county that contains it.
         sql = f"""
@@ -242,14 +384,7 @@ class PlaceResolver:
                  (bbox.xmax - bbox.xmin) * (bbox.ymax - bbox.ymin) DESC
         LIMIT 1
         """
-        rows = self.con.execute(sql, params).fetchall()
-
-        if not rows:
-            LOG.info("no exact division match for %r, trying prefix", parsed.name)
-            rows = self._prefix_search(parsed, subtypes)
-        if not rows:
-            return None
-        return self._describe(rows[0])
+        return self.con.execute(sql, params).fetchall()
 
     def _prefix_search(self, parsed: ParsedPlace, subtypes: str) -> list:
         """Fall back to a prefix match, for partial or misspelt input."""
