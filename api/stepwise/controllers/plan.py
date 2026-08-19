@@ -134,7 +134,7 @@ class StartPointResolver:
         if not address:
             raise BadRequest("provide either address, or lat and lon")
 
-        keys = [region_key] if region_key else self.registry.keys()
+        keys = [region_key] if region_key else self._candidate_regions(address)
         suggestions: list[str] = []
         for key in keys:
             result = Geocoder(self.registry.datasets(key).addresses).resolve(address)
@@ -172,6 +172,54 @@ class StartPointResolver:
             )
         self._offer_coverage(place=address)
 
+    def _candidate_regions(self, address: str) -> list[str]:
+        """Which regions to probe, best first.
+
+        The naive answer — probe them all and take the first hit — is wrong,
+        and wrong in a way that is hard to see. Street names repeat: probing in
+        registry order, "100 W Third St, Kewanee, IL" matched Peoria's Third
+        Street and planned a walk two counties from where the user lives, with
+        nothing in the response admitting it. The result looked entirely
+        plausible.
+
+        The locality the user typed is the discriminator, and it is already
+        right there in the query. When it names a region we hold, **only** that
+        region is probed: falling back to the others would reintroduce exactly
+        the bug, quietly answering about the wrong town rather than saying the
+        street was not found in the right one.
+
+        It also matters for on-demand regions. Someone who has just waited for
+        their city to build would otherwise find their address resolving into
+        whichever bundled city happened to share a street name — which makes
+        "build my area" look broken the first time anyone uses it.
+        """
+        matching = [
+            key
+            for key, region in self.registry.regions.items()
+            if self._label_appears_in(region.label, address)
+        ]
+        if matching:
+            LOG.debug("locality in %r narrowed regions to %s", address, matching)
+            return matching
+        return self.registry.keys()
+
+    @staticmethod
+    def _label_appears_in(label: str, address: str) -> bool:
+        """Whether any place name in a region's label occurs in the query.
+
+        A label reads "San Francisco, CA" or "Peoria & Morton, IL", so it is
+        split on both separators and each part tested. Parts of three
+        characters or fewer are skipped: a bare state code matches far too much
+        — "IL" alone would claim every Illinois address for whichever Illinois
+        region was checked first, which is the very bug this exists to stop.
+        """
+        lowered = address.lower()
+        for part in label.replace("&", ",").split(","):
+            token = part.strip().lower()
+            if len(token) > 3 and token in lowered:
+                return True
+        return False
+
     def _names_a_locality(self, address: str) -> bool:
         """Whether the query names a town at all, as opposed to a bare street.
 
@@ -201,15 +249,10 @@ class StartPointResolver:
         is both wrong and confusing, because we plainly do cover it. Comparing
         the address's locality against the region labels catches that.
         """
-        lowered = address.lower()
-        for region in self.registry.regions.values():
-            # A label reads "San Francisco, CA" or "Peoria & Morton, IL";
-            # any of its place names appearing in the query is a strong signal.
-            for part in region.label.replace("&", ",").split(","):
-                token = part.strip().lower()
-                if len(token) > 3 and token in lowered:
-                    return True
-        return False
+        return any(
+            self._label_appears_in(region.label, address)
+            for region in self.registry.regions.values()
+        )
 
     def _offer_coverage(self, place: str | None = None, coordinate=None) -> None:
         """Raise the most useful error we can about somewhere uncovered.

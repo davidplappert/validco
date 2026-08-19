@@ -12,9 +12,19 @@ from __future__ import annotations
 import json
 
 import pytest
+from stepwise.controllers.plan import StartPointResolver
+from stepwise.datasets.registry import REGISTRY
 from stepwise.handler import handler
 
-DAVID = {"sex": "male", "age": 33, "weight_lb": 320, "height_ft": 6, "height_in": 0}
+#: The synthetic walker every request test uses.
+#:
+#: Named for what it is rather than for a person: this repository is public,
+#: and a fixture carrying somebody's real name alongside their real age is a
+#: description of them regardless of what the privacy guard greps for. The
+#: figures are chosen to stay in obesity class III so the same code paths —
+#: the body-mass speed factor, the knee-load warnings, the step-length
+#: reduction — are still exercised.
+WALKER = {"sex": "male", "age": 45, "weight_lb": 320, "height_ft": 6, "height_in": 0}
 
 
 def call(method: str, path: str, body: dict | None = None, query: dict | None = None):
@@ -86,7 +96,7 @@ def plan():
         body={
             "address": "100 N Main St, Morton, IL 61550",
             "minutes": 30,
-            "profile": DAVID,
+            "profile": WALKER,
             "preferences": {"prefer_paths": True, "avoid_hills": True},
         },
     )
@@ -154,7 +164,7 @@ class TestPlanInSanFrancisco:
         base = {
             "address": "1000 California St, San Francisco",
             "minutes": 40,
-            "profile": DAVID,
+            "profile": WALKER,
         }
         _, hilly = call("POST", "/v1/plan", body={**base, "preferences": {}})
         _, flat = call(
@@ -174,7 +184,7 @@ class TestPlanInSanFrancisco:
             body={
                 "address": "1000 California St, San Francisco",
                 "minutes": 40,
-                "profile": DAVID,
+                "profile": WALKER,
                 "preferences": {"avoid_stairs": True},
             },
         )
@@ -189,7 +199,7 @@ class TestPlanInSanFrancisco:
                 "lat": 37.7749,
                 "lon": -122.4194,
                 "minutes": 25,
-                "profile": DAVID,
+                "profile": WALKER,
                 "preferences": {},
             },
         )
@@ -200,19 +210,23 @@ class TestValidation:
     @pytest.mark.parametrize(
         "body,expected",
         [
-            ({"minutes": 30, "profile": DAVID}, 400),  # no location
+            ({"minutes": 30, "profile": WALKER}, 400),  # no location
             ({"address": "x", "minutes": 30, "profile": {}}, 400),  # no sex
-            ({"address": "x", "minutes": 30, "profile": {**DAVID, "age": 400}}, 400),  # absurd age
+            ({"address": "x", "minutes": 30, "profile": {**WALKER, "age": 400}}, 400),  # absurd age
             (
                 {
                     "address": "x",
                     "minutes": 30,
-                    "profile": {k: v for k, v in DAVID.items() if k != "weight_lb"},
+                    "profile": {k: v for k, v in WALKER.items() if k != "weight_lb"},
                 },
                 400,
             ),
             (
-                {"address": "1000 California St, San Francisco", "minutes": 9999, "profile": DAVID},
+                {
+                    "address": "1000 California St, San Francisco",
+                    "minutes": 9999,
+                    "profile": WALKER,
+                },
                 400,
             ),  # beyond limits
         ],
@@ -226,7 +240,7 @@ class TestValidation:
         status, body = call(
             "POST",
             "/v1/plan",
-            body={"lat": 51.5074, "lon": -0.1278, "minutes": 30, "profile": DAVID},
+            body={"lat": 51.5074, "lon": -0.1278, "minutes": 30, "profile": WALKER},
         )
         assert status == 422
         assert "outside" in body["error"]
@@ -238,3 +252,60 @@ class TestValidation:
             "body": "{not json",
         }
         assert handler(event, None)["statusCode"] == 400
+
+
+class TestRegionSelection:
+    """Which region an address is planned in.
+
+    Street names repeat between towns, so "the first region that produces a
+    hit" is not a safe rule. Peoria and Kewanee both have a Third Street;
+    before this, an address in one planned a walk in the other and nothing in
+    the response admitted it. The answer looked entirely plausible, which is
+    what makes this class of bug worth pinning.
+    """
+
+    @staticmethod
+    def resolver() -> StartPointResolver:
+        """A resolver over the real registry."""
+        return StartPointResolver(REGISTRY)
+
+    def test_the_locality_decides_which_region_is_searched(self):
+        """A town named in the query narrows the search to that town."""
+        assert self.resolver()._candidate_regions("100 N Main St, Morton, IL") == ["pia"]
+        assert self.resolver()._candidate_regions("1100 California St, San Francisco") == ["sf"]
+
+    def test_an_unrecognised_locality_falls_back_to_searching_everything(self):
+        """An unknown town is not evidence against the regions we do hold."""
+        assert self.resolver()._candidate_regions("100 Main St, Nowhereville") == REGISTRY.keys()
+
+    def test_a_bare_street_searches_everything(self):
+        """With no locality there is nothing to narrow on."""
+        assert self.resolver()._candidate_regions("1100 California St") == REGISTRY.keys()
+
+    def test_a_state_code_alone_never_claims_a_region(self):
+        """A two-letter state must not hand every address to one region.
+
+        The short-token rule exists precisely for this: "IL" appears in the
+        label of every Illinois region, so matching on it would reproduce the
+        bug rather than fix it.
+        """
+        assert self.resolver()._candidate_regions("100 Main St, IL") == REGISTRY.keys()
+
+    def test_a_walk_is_planned_in_the_town_that_was_asked_for(self):
+        """End to end, with a street that genuinely exists in both regions.
+
+        "Main St" resolves in San Francisco *and* in Peoria, which is the whole
+        point: an address that only matches one region would pass this test
+        whether or not the locality was ever consulted. This one fails outright
+        if the resolver goes back to taking the first hit in registry order —
+        which is exactly how the bug behaved, and why it survived a full test
+        suite in the first place.
+        """
+        for locality, expected in (("Morton, IL", "pia"), ("San Francisco, CA", "sf")):
+            status, body = call(
+                "POST",
+                "/v1/plan",
+                {"address": f"100 Main St, {locality}", "minutes": 20, "profile": WALKER},
+            )
+            assert status == 200, f"{locality} -> {body}"
+            assert body["region"] == expected, f"{locality} planned in {body['region']}"
