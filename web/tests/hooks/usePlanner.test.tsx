@@ -4,7 +4,12 @@ import { usePlanner } from "@/hooks/usePlanner";
 import { resetConfig } from "@/lib/api";
 import { planResponse } from "../fixtures";
 
-const CONFIG = { apiBaseUrl: "https://api.test", env: "dev", version: "x", region: "us-east-1" };
+const CONFIG = {
+  apiBaseUrl: "https://api.test",
+  env: "dev",
+  version: "x",
+  region: "us-east-1",
+};
 
 const REQUEST = {
   address: "100 N Main St",
@@ -92,7 +97,11 @@ describe("usePlanner", () => {
   });
 
   it("omits the hint when the server offered no suggestions", async () => {
-    stub(new Response(JSON.stringify({ error: "internal error" }), { status: 500 }));
+    stub(
+      new Response(JSON.stringify({ error: "internal error" }), {
+        status: 500,
+      }),
+    );
     const { result } = renderHook(() => usePlanner());
     await act(async () => {
       await result.current.submit(REQUEST);
@@ -101,7 +110,12 @@ describe("usePlanner", () => {
     expect(result.current.error?.hint).toBeUndefined();
   });
 
-  it("clears a previous result when a later request fails", async () => {
+  it("keeps the last good result visible when a later request fails", async () => {
+    // This used to assert the opposite, and the form auto-updating as you type
+    // is what changed it. Most failures are now transient — a half-typed
+    // address that does not geocode *yet* — and blanking the map on each one
+    // makes the app flicker between working and broken. Showing the error above
+    // a merely stale result is the more honest of the two states.
     stub(new Response(JSON.stringify(planResponse), { status: 200 }));
     const { result } = renderHook(() => usePlanner());
     await act(async () => {
@@ -113,8 +127,55 @@ describe("usePlanner", () => {
     await act(async () => {
       await result.current.submit(REQUEST);
     });
-    expect(result.current.result).toBeNull();
+    expect(result.current.result).not.toBeNull();
     expect(result.current.error).not.toBeNull();
+  });
+
+  it("ignores a slow response that a newer request has overtaken", async () => {
+    // Two plans can be in flight once the form submits itself, and they do not
+    // land in order: a 40-minute request against a dense city easily outlasts
+    // the 20-minute one typed after it. Without a sequence guard the stale
+    // response wins by arriving last, and the map shows a walk for a body
+    // weight the user already changed.
+    let releaseFirst: () => void = () => {};
+    const firstMayLand = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    let planCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/config.json")) {
+          return new Response(JSON.stringify(CONFIG), { status: 200 });
+        }
+        planCalls += 1;
+        const region = planCalls === 1 ? "stale" : "fresh";
+        if (planCalls === 1) await firstMayLand;
+        return new Response(JSON.stringify({ ...planResponse, region }), {
+          status: 200,
+        });
+      }),
+    );
+
+    const { result } = renderHook(() => usePlanner());
+
+    let overtaken!: Promise<void>;
+    act(() => {
+      overtaken = result.current.submit(REQUEST);
+    });
+    await act(async () => {
+      await result.current.submit({ ...REQUEST, minutes: 20 });
+    });
+    expect(result.current.result?.region).toBe("fresh");
+
+    // The overtaken request only lands now. It must change nothing.
+    await act(async () => {
+      releaseFirst();
+      await overtaken;
+    });
+    expect(result.current.result?.region).toBe("fresh");
+    expect(result.current.busy).toBe(false);
   });
 
   it("resets back to the empty state", async () => {

@@ -6,6 +6,7 @@ import PlanForm, { DEFAULT_PLAN_REQUEST } from "@/components/form/PlanForm";
 import AppHeader from "@/components/layout/AppHeader";
 import Attribution from "@/components/layout/Attribution";
 import Panel from "@/components/layout/Panel";
+import UpdatingOverlay from "@/components/feedback/UpdatingOverlay";
 import MapLegend from "@/components/map/MapLegend";
 import RegionGate from "@/components/regions/RegionGate";
 import ResultsPanel from "@/components/results/ResultsPanel";
@@ -38,8 +39,9 @@ export default function Home() {
   // route and real health figures rather than an empty form. An empty first
   // screen asks the user to do work before they can tell whether the product
   // is worth their time.
-  const { result, selectedIndex, busy, error, priming, submit, select } =
-    usePlanner({ autoRun: DEFAULT_PLAN_REQUEST });
+  const { result, selectedIndex, busy, error, priming, submit, select } = usePlanner({
+    autoRun: DEFAULT_PLAN_REQUEST,
+  });
 
   // The request that produced the current state, kept so a freshly-built area
   // can be planned without the user retyping anything.
@@ -75,7 +77,12 @@ export default function Home() {
       // `retry_region` names the key but not the place, so the address the user
       // typed is passed along as the thing to re-request once it is cleared.
       retryRegion(
-        action ? { key: action.key, place: action.place ?? lastRequest.current.address } : undefined,
+        action
+          ? {
+              key: action.key,
+              place: action.place ?? lastRequest.current.address,
+            }
+          : undefined,
       );
     },
     [retryRegion],
@@ -111,7 +118,12 @@ export default function Home() {
         <MapView
           route={activeRoute}
           origin={
-            result ? { lat: result.origin.snapped_lat, lon: result.origin.snapped_lon } : null
+            result
+              ? {
+                  lat: result.origin.snapped_lat,
+                  lon: result.origin.snapped_lon,
+                }
+              : null
           }
           center={center}
         />
@@ -138,15 +150,18 @@ export default function Home() {
             Planning a first walk so you can see what this does…
           </p>
         )}
-        {result && (
-          <ResultsPanel
-            result={result}
-            selectedIndex={selectedIndex}
-            onSelect={select}
-          />
-        )}
+        {result && <ResultsPanel result={result} selectedIndex={selectedIndex} onSelect={select} />}
         <Attribution />
       </Panel>
+
+      {/*
+        Last child of <main> so it sits above both the map and the panel. It is
+        driven by `busy` alone, never by the debounce's pending flag: during the
+        wait after a keystroke nothing is actually being computed, and dimming
+        the screen while the user is still thinking would be a lie about what
+        the app is doing.
+      */}
+      <UpdatingOverlay active={busy} />
     </main>
   );
 }

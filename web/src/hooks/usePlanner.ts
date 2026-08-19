@@ -61,14 +61,25 @@ export function usePlanner(options: PlannerOptions = {}): PlannerState {
   const [error, setError] = useState<PlannerError | null>(null);
   const [priming, setPriming] = useState(Boolean(options.autoRun));
 
+  // Which submission is current. Once the form auto-updates as you type, two
+  // plans can be in flight at once and they do not necessarily land in order —
+  // a 40-minute request against a dense city can easily outlast the 20-minute
+  // one typed after it. Without this guard the stale response wins simply by
+  // arriving last, and the map shows a walk for a body weight the user has
+  // already changed. Every state write below is gated on still being current.
+  const sequence = useRef(0);
+
   const submit = useCallback(async (request: PlanRequest) => {
+    const id = ++sequence.current;
     setBusy(true);
     setError(null);
     try {
       const response = await planWalk(request);
+      if (id !== sequence.current) return;
       setResult(response);
       setSelectedIndex(0);
     } catch (caught) {
+      if (id !== sequence.current) return;
       // The API returns street suggestions on a geocoding miss, which is far
       // more actionable than "not found" — surface them as the hint.
       if (caught instanceof ApiError) {
@@ -98,15 +109,22 @@ export function usePlanner(options: PlannerOptions = {}): PlannerState {
           message: caught instanceof Error ? caught.message : "Something went wrong",
         });
       }
-      setResult(null);
+      // Deliberately *not* clearing the result. While the form updates as you
+      // type, most failures are transient — a half-typed address that does not
+      // geocode yet — and blanking the map on each one makes the app flicker
+      // between working and broken. The error is shown above a result that is
+      // merely stale, which is the more honest of the two states.
     } finally {
-      setBusy(false);
+      if (id === sequence.current) setBusy(false);
     }
   }, []);
 
   const select = useCallback((index: number) => setSelectedIndex(index), []);
 
   const reset = useCallback(() => {
+    // Abandons any in-flight submission too, so a late response cannot
+    // repopulate what the caller just cleared.
+    sequence.current += 1;
     setResult(null);
     setError(null);
     setSelectedIndex(0);
