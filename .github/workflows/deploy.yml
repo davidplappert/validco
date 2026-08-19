@@ -213,17 +213,24 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
-      # apt is the slow, flaky part, and it only runs on a cache miss — but when
-      # it does run it has been known to sit on an unreachable mirror for
-      # minutes, so it gets room rather than failing the whole deploy.
+      # No `--with-deps`, and that is the whole fix.
+      #
+      # `--with-deps` runs apt, and apt on these runners has twice sat on an
+      # unreachable Ubuntu mirror until the step timed out — six minutes the
+      # first time, ten the second, taking the deploy down with it. Caching
+      # never could have helped: apt installs into the *runner*, not into
+      # ~/.cache/ms-playwright, and every matrix job gets a fresh machine, so
+      # even a cache hit would need the system libraries again.
+      #
+      # It turns out they were never needed. The cache-hit path has been
+      # running plain `playwright install` and passing all along, because the
+      # ubuntu-latest image already ships the libraries Chromium wants. So this
+      # asks for the browser and nothing else. If a library ever does go
+      # missing, the tests fail in seconds with a linker error naming it —
+      # a far better failure than a ten-minute silence.
       - name: Install the browser
-        timeout-minutes: 10
-        run: |
-          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install chromium
-          else
-            npx playwright install --with-deps chromium
-          fi
+        timeout-minutes: 5
+        run: npx playwright install chromium
       - name: End-to-end tests
         timeout-minutes: 8
         run: npx playwright test ${{ matrix.args }}
@@ -447,17 +454,24 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
-      # apt is the slow, flaky part, and it only runs on a cache miss — but when
-      # it does run it has been known to sit on an unreachable mirror for
-      # minutes, so it gets room rather than failing the whole deploy.
+      # No `--with-deps`, and that is the whole fix.
+      #
+      # `--with-deps` runs apt, and apt on these runners has twice sat on an
+      # unreachable Ubuntu mirror until the step timed out — six minutes the
+      # first time, ten the second, taking the deploy down with it. Caching
+      # never could have helped: apt installs into the *runner*, not into
+      # ~/.cache/ms-playwright, and every matrix job gets a fresh machine, so
+      # even a cache hit would need the system libraries again.
+      #
+      # It turns out they were never needed. The cache-hit path has been
+      # running plain `playwright install` and passing all along, because the
+      # ubuntu-latest image already ships the libraries Chromium wants. So this
+      # asks for the browser and nothing else. If a library ever does go
+      # missing, the tests fail in seconds with a linker error naming it —
+      # a far better failure than a ten-minute silence.
       - name: Install the browser
-        timeout-minutes: 10
-        run: |
-          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install chromium
-          else
-            npx playwright install --with-deps chromium
-          fi
+        timeout-minutes: 5
+        run: npx playwright install chromium
 
       # The un-stubbed suite: real CloudFront, real config.json, real API
       # Gateway, real Lambda cold start. This is what proves the deployment
