@@ -116,28 +116,27 @@ jobs:
 
   e2e:
     timeout-minutes: 12
-    name: e2e (${{ matrix.project }})
+    name: e2e (${{ matrix.name }})
     needs: frontend
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # The seven viewport projects each run only the responsive spec, so
-        # they are short; chromium and mobile run everything. Listing them here
-        # is the difference between having a responsive suite and having one
-        # that never executes.
-        project:
-          [
-            chromium,
-            mobile,
-            phone-small,
-            phone,
-            tablet-portrait,
-            tablet-landscape,
-            laptop,
-            desktop,
-            desktop-wide,
-          ]
+        # Three jobs rather than nine. The seven viewport projects each run
+        # only the responsive spec and take seconds, so they share one runner
+        # and Playwright parallelises them internally. Nine separate jobs each
+        # doing `playwright install --with-deps` meant nine concurrent apt
+        # runs, and one of them hung long enough to burn the job timeout.
+        include:
+          - name: chromium
+            args: --project=chromium
+          - name: mobile
+            args: --project=mobile
+          - name: viewports
+            args: >-
+              --project=phone-small --project=phone
+              --project=tablet-portrait --project=tablet-landscape
+              --project=laptop --project=desktop --project=desktop-wide
     defaults:
       run:
         working-directory: web
@@ -157,16 +156,33 @@ jobs:
           name: web-out
           path: web/out
 
+      # Playwright's browser download is ~150 MB and unchanged between runs.
+      # Caching it also lets the install skip apt entirely on a hit, which is
+      # where the occasional multi-minute hang came from.
+      - name: Cache the Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+
       - name: Install the browser
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 6
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       - name: End-to-end tests
-        run: npx playwright test --project=${{ matrix.project }}
+        timeout-minutes: 8
+        run: npx playwright test ${{ matrix.args }}
 
       - name: Upload the report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.project }}
+          name: playwright-report-${{ matrix.name }}
           path: web/playwright-report
           retention-days: 7
