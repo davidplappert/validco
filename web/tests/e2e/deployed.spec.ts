@@ -43,7 +43,9 @@ test("config.json carries a usable API URL", async ({ request }) => {
 
 test("plans a real walk end to end", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("100 N Main St, Morton, IL 61550");
+  await page
+    .getByLabel(/Start address/i)
+    .fill("100 N Main St, Morton, IL 61550");
   await page.getByRole("button", { name: /find me a walk/i }).click();
 
   const list = page.getByLabel("Suggested walks");
@@ -56,24 +58,44 @@ test("plans a real walk end to end", async ({ page }) => {
   // Matched as a whole line rather than a substring: the street name also
   // appears in each route's "via ..." list, and a loose regex matches several
   // elements at once, which Playwright treats as an error rather than a pass.
+  await expect(page.getByText(/^\d+ North MAIN Street, \d{5}$/i)).toBeVisible();
   await expect(
-    page.getByText(/^\d+ North MAIN Street, \d{5}$/i),
+    page.getByText(/Snapped \d+ m to the walking network/),
   ).toBeVisible();
-  await expect(page.getByText(/Snapped \d+ m to the walking network/)).toBeVisible();
 });
 
 test("plans a walk in San Francisco too", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("1000 California St, San Francisco");
+  await page
+    .getByLabel(/Start address/i)
+    .fill("1000 California St, San Francisco");
   await page.getByRole("button", { name: /find me a walk/i }).click();
-  await expect(page.getByLabel("Suggested walks")).toBeVisible({ timeout: 60_000 });
-});
-
-test("reports a genuinely uncovered address rather than failing", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("10 Downing Street, London SW1A 2AA");
-  await page.getByRole("button", { name: /find me a walk/i }).click();
-  await expect(page.getByRole("alert", { name: "Planning error" })).toBeVisible({
+  await expect(page.getByLabel("Suggested walks")).toBeVisible({
     timeout: 60_000,
   });
+});
+
+test("offers to build an uncovered area rather than refusing it", async ({
+  page,
+}) => {
+  // This used to assert a planning error, and the change is the point: an
+  // address outside the two bundled cities is no longer a dead end, it is an
+  // offer to extract that area from Overture. The test is deliberately left
+  // at the offer and does not accept it — a real build writes to the shared
+  // region bucket, and a deploy check should not mutate production data or
+  // wait two minutes to prove a button works.
+  //
+  // It also doubles as a configuration check: the offer only appears when the
+  // catalogue is enabled, which requires REGION_BUCKET in the Lambda's
+  // environment. Deploy that without it and this test fails — which is how the
+  // missing variable should have been caught the first time.
+  await page.goto("/");
+  await page
+    .getByLabel(/Start address/i)
+    .fill("10 Downing Street, London SW1A 2AA");
+  await page.getByRole("button", { name: /find me a walk/i }).click();
+
+  const offer = page.getByRole("alert", { name: "Coverage needed" });
+  await expect(offer).toBeVisible({ timeout: 60_000 });
+  await expect(offer.getByRole("button")).toBeEnabled();
 });
