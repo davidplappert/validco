@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
+import time
 from pathlib import Path
 
 from ..container import Container
 from ..models.location import Coordinate
 from ..models.region import Region
 from .addresses import AddressIndex
+from .catalog import READY, RegionCatalog
 from .graph import WalkGraph
 from .green import GreenIndex
 from .places import PlaceIndex
@@ -28,22 +31,59 @@ LOG = logging.getLogger(__name__)
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
+#: Lambda gives every container a writable /tmp that survives between
+#: invocations, so a downloaded region is fetched once per container rather
+#: than once per request.
+CACHE_DIR = Path(tempfile.gettempdir()) / "stepwise-regions"
+
 
 class RegionDatasets:
-    """The four datasets for one region, each loaded on first use."""
+    """The four datasets for one region, each loaded on first use.
 
-    def __init__(self, key: str, data_dir: Path):
+    A region is either **bundled** — shipped inside the deployment package, as
+    the two showcase cities are — or **on demand**, built into S3 when someone
+    first asks for it. Bundled regions cost nothing to reach; on-demand ones are
+    downloaded to the container's /tmp once and reused for its lifetime.
+    """
+
+    def __init__(self, key: str, data_dir: Path, catalog: RegionCatalog | None = None):
         """Record which region and where its files live; load nothing yet."""
         self.key = key
         self.data_dir = data_dir
+        self.catalog = catalog
         self._graph: WalkGraph | None = None
         self._addresses: AddressIndex | None = None
         self._places: PlaceIndex | None = None
         self._green: GreenIndex | None = None
 
     def _load(self, suffix: str) -> Container:
-        """Open one of this region's containers by filename suffix."""
-        return Container.load(self.data_dir / f"{self.key}.{suffix}.spw")
+        """Open one of this region's containers, fetching it if it is remote."""
+        bundled = self.data_dir / f"{self.key}.{suffix}.spw"
+        if bundled.exists():
+            return Container.load(bundled)
+
+        if self.catalog is None or not self.catalog.enabled:
+            raise FileNotFoundError(f"no dataset {suffix!r} for region {self.key!r}")
+
+        cached = CACHE_DIR / f"{self.key}.{suffix}.spw"
+        if not cached.exists():
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            # Download to a temporary name and rename, so a container that dies
+            # mid-download cannot leave a truncated file that later loads as a
+            # corrupt graph.
+            staging = cached.with_suffix(".partial")
+            if not self.catalog.download(self.key, suffix, str(staging)):
+                raise FileNotFoundError(
+                    f"region {self.key!r} has no {suffix!r} dataset in the catalog"
+                )
+            staging.replace(cached)
+            LOG.info(
+                "cached region artifact key=%s suffix=%s bytes=%d",
+                self.key,
+                suffix,
+                cached.stat().st_size,
+            )
+        return Container.load(cached)
 
     @property
     def graph(self) -> WalkGraph:
@@ -90,12 +130,15 @@ class RegionDatasets:
 class DatasetRegistry:
     """Every region's datasets, plus the manifest describing them."""
 
-    def __init__(self, data_dir: Path = DEFAULT_DATA_DIR):
+    def __init__(self, data_dir: Path = DEFAULT_DATA_DIR, catalog: RegionCatalog | None = None):
         """Point the registry at a data directory without reading it yet."""
         self.data_dir = data_dir
+        self.catalog = catalog if catalog is not None else RegionCatalog()
         self._manifest: dict | None = None
         self._regions: dict[str, Region] | None = None
         self._datasets: dict[str, RegionDatasets] = {}
+        self._catalog_regions: dict[str, Region] = {}
+        self._catalog_loaded_at = 0.0
 
     @property
     def manifest(self) -> dict:
@@ -106,11 +149,64 @@ class DatasetRegistry:
         return self._manifest
 
     @property
-    def regions(self) -> dict[str, Region]:
-        """Region models keyed by their short key."""
+    def bundled_regions(self) -> dict[str, Region]:
+        """Regions shipped inside the deployment package."""
         if self._regions is None:
             self._regions = {r["key"]: Region(**r) for r in self.manifest["regions"]}
         return self._regions
+
+    @property
+    def regions(self) -> dict[str, Region]:
+        """Every region available to serve plans — bundled plus ready on-demand.
+
+        The catalogue listing is cached for a short window: it costs an S3 LIST
+        plus a GET per region, and coverage does not change between one request
+        and the next.
+        """
+        merged = dict(self.bundled_regions)
+        merged.update(self._ready_catalog_regions())
+        return merged
+
+    def _ready_catalog_regions(self, ttl_s: float = 30.0) -> dict[str, Region]:
+        """On-demand regions that have finished building."""
+        if not self.catalog.enabled:
+            return {}
+        now = time.time()
+        if self._catalog_regions and (now - self._catalog_loaded_at) < ttl_s:
+            return self._catalog_regions
+
+        found: dict[str, Region] = {}
+        for status in self.catalog.list():
+            if status.state != READY or not status.bbox:
+                continue
+            stats = status.stats or {}
+            found[status.key] = Region(
+                key=status.key,
+                label=status.label,
+                center=status.center
+                or [
+                    (status.bbox[1] + status.bbox[3]) / 2,
+                    (status.bbox[0] + status.bbox[2]) / 2,
+                ],
+                bbox=status.bbox,
+                n_nodes=stats.get("n_nodes", 0),
+                n_edges=stats.get("n_edges", 0),
+                n_addresses=stats.get("n_addresses", 0),
+                n_places=stats.get("n_places", 0),
+            )
+        self._catalog_regions = found
+        self._catalog_loaded_at = now
+        LOG.debug("catalog regions refreshed count=%d", len(found))
+        return found
+
+    def invalidate(self) -> None:
+        """Drop the cached catalogue listing.
+
+        Called after a build completes, so the region it produced is visible to
+        the very next request rather than up to a TTL later.
+        """
+        self._catalog_regions = {}
+        self._catalog_loaded_at = 0.0
 
     @property
     def default_region_key(self) -> str:
@@ -133,7 +229,7 @@ class DatasetRegistry:
         self.region(key)  # validates, and raises with a useful message
         cached = self._datasets.get(key)
         if cached is None:
-            cached = RegionDatasets(key, self.data_dir)
+            cached = RegionDatasets(key, self.data_dir, self.catalog)
             self._datasets[key] = cached
             LOG.info("region datasets registered key=%s", key)
         return cached

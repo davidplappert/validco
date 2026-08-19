@@ -199,6 +199,69 @@ export interface PlanResponse {
 
 export interface RegionsResponse {
   regions: Region[];
+  pending?: RegionState[];
   default: string;
+  on_demand?: boolean;
   attribution: string;
+}
+
+/** Lifecycle of a coverage area that is being extracted on demand. */
+export type RegionLifecycle = "pending" | "building" | "ready" | "failed";
+
+/** Build stages, in the order they run. */
+export type RegionStage =
+  | "queued"
+  | "resolve"
+  | "segments"
+  | "addresses"
+  | "places"
+  | "green"
+  | "graph"
+  | "terrain"
+  | "pack"
+  | "upload"
+  | "ready";
+
+/** The state of one on-demand coverage area. */
+export interface RegionState {
+  key: string;
+  label: string;
+  state: RegionLifecycle;
+  progress: number;
+  stage: RegionStage | string;
+  message: string;
+  bbox?: [number, number, number, number] | null;
+  center?: [number, number] | null;
+  stats?: {
+    n_nodes?: number;
+    n_edges?: number;
+    n_addresses?: number;
+    n_places?: number;
+    build_seconds?: number;
+  };
+  error?: string;
+  existing?: boolean;
+  poll?: string;
+}
+
+/** A recovery step the API offers alongside an error. */
+export interface ErrorAction {
+  kind: "add_region" | "retry_region" | "poll_region";
+  label: string;
+  place?: string;
+  key?: string;
+  lat?: number;
+  lon?: number;
+}
+
+/** The structured error body every failed request returns. */
+export interface ApiErrorBody {
+  error: string;
+  code: string;
+  title: string;
+  detail: string;
+  action?: ErrorAction;
+  suggestions?: string[];
+  covered?: string[];
+  request_id?: string;
 }

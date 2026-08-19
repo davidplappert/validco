@@ -68,6 +68,11 @@ tags:
     description: Liveness and coverage.
   - name: geocoding
     description: Resolving addresses against the Overture address corpus.
+  - name: coverage
+    description: >
+      Which areas are available, and requesting new ones. Any place in Overture
+      can be added on demand; the first request pays for a one-off extraction
+      and the result is cached for everyone.
   - name: planning
     description: The product — turning a person and a time budget into walks.
 
@@ -101,6 +106,68 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RegionsResponse"
+
+    post:
+      tags: [coverage]
+      operationId: requestRegion
+      summary: Ask for coverage of somewhere new
+      description: |
+        Requests that a new area be extracted from Overture. Returns immediately
+        with a key to poll — the extraction itself takes a minute or two and
+        runs in a separate function.
+
+        Idempotent: asking twice for the same place returns the same key and
+        joins the in-flight build rather than starting a second one. That
+        guarantee comes from a conditional write in the artifact store, so it
+        holds even for simultaneous requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                place:
+                  type: string
+                  maxLength: 120
+                  description: A town or city name, optionally qualified by state.
+                  examples: ["Austin, TX", "Boulder, Colorado", "Chillicothe IL"]
+                lat: { type: number, minimum: -90, maximum: 90 }
+                lon: { type: number, minimum: -180, maximum: 180 }
+              anyOf:
+                - required: [place]
+                - required: [lat, lon]
+      responses:
+        "200":
+          description: The area is already covered and ready to use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionState"
+        "202":
+          description: A build has started, or one was already running.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/RegionState"
+                  - type: object
+                    properties:
+                      poll:
+                        type: string
+                        description: Path to poll for progress.
+                        example: /v1/regions/us-tx-austin
+                      existing:
+                        type: boolean
+                        description: Whether this joined a build already in flight.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          description: This deployment serves only its bundled regions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /v1/geocode:
     get:
@@ -157,6 +224,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GeocodeMiss"
+
+  /v1/regions/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        description: The region key, as returned by `POST /v1/regions`.
+        schema: { type: string }
+    get:
+      tags: [coverage]
+      operationId: getRegion
+      summary: One region's state and build progress
+      description: |
+        Poll this while a region is building. `progress` runs from 0 to 1 and is
+        weighted by how long each stage actually takes, so a progress bar driven
+        by it advances at a roughly steady rate.
+      responses:
+        "200":
+          description: The region's current state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionState"
+        "404":
+          description: No such region has been requested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [coverage]
+      operationId: clearRegion
+      summary: Clear a failed build so it can be retried
+      description: |
+        Only failed or stalled builds may be cleared, and bundled regions never
+        can. A successful region is a shared cache entry — letting any caller
+        evict it would let one user impose a rebuild on everyone.
+      responses:
+        "200":
+          description: The region was cleared and may be requested again.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  cleared: { type: boolean }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: No such region.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /v1/places:
     get:
@@ -318,11 +440,55 @@ components:
 
     Error:
       type: object
-      required: [error]
+      description: |
+        Errors carry three things at once, for three audiences: a machine
+        `code` the client branches on, human `title` and `detail` written to be
+        displayed, and a developer `message` in `error` that matches the logs.
+        Where recovery is possible, an `action` says what to offer.
+      required: [error, code, title, detail]
       properties:
+        code:
+          type: string
+          description: Machine-readable failure kind. Branch on this, not on prose.
+          enum:
+            - bad_request
+            - too_large
+            - not_found
+            - address_not_found
+            - not_ready
+            - region_building
+            - unprocessable
+            - region_not_covered
+            - region_build_failed
+            - no_walkable_network
+            - upstream_unavailable
+            - internal_error
+        title:
+          type: string
+          description: A short heading, safe to show a user.
+          example: We don't have walking data for that area yet
+        detail:
+          type: string
+          description: A sentence explaining what to do about it.
+        action:
+          type: object
+          description: An offered recovery step.
+          required: [kind, label]
+          properties:
+            kind:
+              type: string
+              enum: [add_region, retry_region, poll_region]
+            label:
+              type: string
+              description: Button text.
+              example: Add this area
+            place: { type: string }
+            key: { type: string }
+            lat: { type: number }
+            lon: { type: number }
         error:
           type: string
-          description: A message intended to be shown to the caller.
+          description: Developer-facing summary; matches the logs.
         request_id:
           type: string
           description: |
@@ -346,6 +512,9 @@ components:
           type: string
           description: The git SHA the running Lambda was deployed from.
         env: { type: string, example: dev }
+        on_demand_regions:
+          type: boolean
+          description: Whether this deployment can extract new coverage areas.
         regions_registered:
           type: object
           description: Which datasets this container has decoded so far.
@@ -380,14 +549,74 @@ components:
         n_addresses: { type: integer, example: 394704 }
         n_places: { type: integer, example: 3959 }
 
+    RegionState:
+      type: object
+      description: A coverage area's lifecycle state.
+      required: [key, state]
+      properties:
+        key: { type: string, example: us-tx-austin }
+        label: { type: string, example: "Austin, TX" }
+        state:
+          type: string
+          enum: [pending, building, ready, failed]
+        progress:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Build progress, weighted by each stage's real cost.
+        stage:
+          type: string
+          description: Which stage is running.
+          enum: [queued, resolve, segments, addresses, places, green, graph,
+                 terrain, pack, upload, ready]
+        message:
+          type: string
+          description: A sentence describing the current stage, for display.
+        bbox:
+          type: array
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+        center:
+          type: array
+          items: { type: number }
+          minItems: 2
+          maxItems: 2
+        stats:
+          type: object
+          description: What the build produced. Present once ready.
+          properties:
+            n_nodes: { type: integer }
+            n_edges: { type: integer }
+            n_addresses: { type: integer }
+            n_places: { type: integer }
+            bytes: { type: integer }
+            build_seconds: { type: number }
+        error:
+          type: string
+          description: Why the build failed. Present only when state is failed.
+        updated_at:
+          type: number
+          description: Unix timestamp of the last status write.
+
     RegionsResponse:
       type: object
       required: [regions, default, attribution]
       properties:
         regions:
           type: array
+          description: Areas ready to serve plans.
           items: { $ref: "#/components/schemas/Region" }
+        pending:
+          type: array
+          description: Areas that have been requested but are not ready yet.
+          items: { $ref: "#/components/schemas/RegionState" }
         default: { $ref: "#/components/schemas/RegionKey" }
+        on_demand:
+          type: boolean
+          description: >
+            Whether this deployment can extract new areas. False means only the
+            bundled regions are available.
         attribution:
           type: string
           description: Required data attribution. Display this.

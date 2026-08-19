@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from ..http.request import Request
 from ..http.response import Response
+from ..settings import SETTINGS
 from .base import Controller
 
 LOG = logging.getLogger(__name__)
@@ -30,22 +30,7 @@ class HealthController(Controller):
             {
                 "ok": True,
                 "service": "stepwise",
-                "version": os.environ.get("APP_VERSION", "dev"),
-                "env": os.environ.get("ENV_NAME", "local"),
+                **SETTINGS.describe(),
                 "regions_registered": self.registry.status(),
-            }
-        )
-
-
-class RegionsController(Controller):
-    """``GET /v1/regions`` — the coverage areas and their dataset sizes."""
-
-    def handle(self, request: Request) -> Response:
-        """List every region, with the default the frontend should open on."""
-        return Response.ok(
-            {
-                "regions": [r.to_dict() for r in self.registry.regions.values()],
-                "default": self.registry.default_region_key,
-                "attribution": ATTRIBUTION,
             }
         )

@@ -205,6 +205,210 @@ class TestTransportSecurity:
         assert denies_insecure
 
 
+class TestTransportEverywhere:
+    """Nothing in this system should ever move over plain HTTP."""
+
+    def test_no_behaviour_serves_plain_http(self, template):
+        distributions = template.find_resources("AWS::CloudFront::Distribution")
+        config = next(iter(distributions.values()))["Properties"]["DistributionConfig"]
+        behaviours = [config["DefaultCacheBehavior"], *config.get("CacheBehaviors", [])]
+        for behaviour in behaviours:
+            assert behaviour["ViewerProtocolPolicy"] in ("redirect-to-https", "https-only")
+
+    def test_every_bucket_denies_non_tls_requests(self, template):
+        """`enforce_ssl` adds an explicit Deny on aws:SecureTransport=false."""
+        policies = template.find_resources("AWS::S3::BucketPolicy")
+        assert policies, "buckets must carry policies"
+        for name, policy in policies.items():
+            statements = policy["Properties"]["PolicyDocument"]["Statement"]
+            assert any(
+                s.get("Effect") == "Deny"
+                and s.get("Condition", {}).get("Bool", {}).get("aws:SecureTransport") == "false"
+                for s in statements
+            ), f"{name} does not require TLS"
+
+    def test_the_tile_host_is_in_both_img_src_and_connect_src(self, template):
+        """Regression guard for a bug that shipped.
+
+        MapLibre fetches raster tiles through the Fetch API, not as <img>
+        elements, so listing the tile host only under `img-src` left the map
+        blank in production with a console full of CSP violations. Both
+        directives must name it.
+        """
+        policies = template.find_resources("AWS::CloudFront::ResponseHeadersPolicy")
+        config = next(iter(policies.values()))["Properties"]["ResponseHeadersPolicyConfig"]
+        csp = flatten(
+            config["SecurityHeadersConfig"]["ContentSecurityPolicy"]["ContentSecurityPolicy"]
+        )
+
+        directives = {
+            part.strip().split(" ", 1)[0]: part.strip() for part in csp.split(";") if part.strip()
+        }
+        assert "tile.openstreetmap.org" in directives["img-src"]
+        assert "tile.openstreetmap.org" in directives["connect-src"]
+
+    def test_every_host_the_map_style_uses_is_allowed_to_connect(self, template):
+        """Whatever the map style fetches from must be in `connect-src`.
+
+        Reads the hosts out of the frontend source rather than hard-coding
+        them, so adding a tile provider without widening the policy fails here
+        instead of in a browser.
+        """
+        import re
+        from pathlib import Path
+
+        style = Path("web/src/components/map/MapView.tsx").read_text()
+        hosts = set(re.findall(r"https://([a-z0-9.\-]+)/\{z\}", style))
+        assert hosts, "expected at least one tile host in the map style"
+
+        policies = template.find_resources("AWS::CloudFront::ResponseHeadersPolicy")
+        config = next(iter(policies.values()))["Properties"]["ResponseHeadersPolicyConfig"]
+        csp = flatten(
+            config["SecurityHeadersConfig"]["ContentSecurityPolicy"]["ContentSecurityPolicy"]
+        )
+        connect = next(p for p in csp.split(";") if p.strip().startswith("connect-src"))
+        for host in hosts:
+            assert host in connect, f"{host} is fetched by the map but not in connect-src"
+
+    def test_csp_upgrades_insecure_requests(self, template):
+        policies = template.find_resources("AWS::CloudFront::ResponseHeadersPolicy")
+        config = next(iter(policies.values()))["Properties"]["ResponseHeadersPolicyConfig"]
+        csp = flatten(
+            config["SecurityHeadersConfig"]["ContentSecurityPolicy"]["ContentSecurityPolicy"]
+        )
+        assert "upgrade-insecure-requests" in csp
+        # No scheme-less or http: source anywhere in the policy.
+        assert "http://" not in csp
+
+
+class TestBucketsAreNeverPublic:
+    """Every bucket is reachable only through CloudFront or the Lambda's IAM role."""
+
+    def test_all_buckets_block_public_access(self, template):
+        buckets = template.find_resources("AWS::S3::Bucket")
+        assert len(buckets) >= 3, "site, region cache and CloudTrail buckets"
+        for name, bucket in buckets.items():
+            config = bucket["Properties"].get("PublicAccessBlockConfiguration")
+            assert config == {
+                "BlockPublicAcls": True,
+                "BlockPublicPolicy": True,
+                "IgnorePublicAcls": True,
+                "RestrictPublicBuckets": True,
+            }, f"{name} does not block public access"
+
+    def test_no_bucket_policy_grants_a_wildcard_principal(self, template):
+        """A `Principal: "*"` Allow is how a bucket accidentally goes public."""
+        policies = template.find_resources("AWS::S3::BucketPolicy")
+        for name, policy in policies.items():
+            for statement in policy["Properties"]["PolicyDocument"]["Statement"]:
+                if statement.get("Effect") != "Allow":
+                    continue
+                principal = statement.get("Principal")
+                assert principal != "*", f"{name} allows an anonymous principal"
+                if isinstance(principal, dict):
+                    assert principal.get("AWS") != "*", f"{name} allows any AWS principal"
+
+    def test_the_site_bucket_is_reached_through_origin_access_control(self, template):
+        """CloudFront, and only CloudFront, may read the site bucket."""
+        template.resource_count_is("AWS::CloudFront::OriginAccessControl", 1)
+        policies = template.find_resources("AWS::S3::BucketPolicy")
+        grants_cloudfront = any(
+            statement.get("Principal", {}).get("Service") == "cloudfront.amazonaws.com"
+            for policy in policies.values()
+            for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+        )
+        assert grants_cloudfront
+
+    def test_the_region_cache_is_never_fronted_by_cloudfront(self, template):
+        """It holds derived data served through the API, not the browser.
+
+        Asserted by name rather than by origin count: what matters is that the
+        region cache is not publicly reachable, not how many origins the site
+        bucket happens to be wired through.
+        """
+        distributions = template.find_resources("AWS::CloudFront::Distribution")
+        config = next(iter(distributions.values()))["Properties"]["DistributionConfig"]
+        for origin in config["Origins"]:
+            rendered = flatten(origin["DomainName"])
+            assert "RegionBucket" not in rendered, "the region cache must not be public"
+            assert "TrailBucket" not in rendered, "audit logs must not be public"
+
+
+class TestCorsFailsClosed:
+    """A misconfiguration must never widen access to every origin."""
+
+    def test_a_deployed_environment_without_config_emits_no_origin(self, monkeypatch):
+        from stepwise.http.response import Response
+
+        monkeypatch.setenv("ENV_NAME", "dev")
+        monkeypatch.delenv("CORS_ALLOW_ORIGIN", raising=False)
+        assert "Access-Control-Allow-Origin" not in Response.cors_headers()
+
+    def test_a_deployed_environment_uses_exactly_the_configured_origin(self, monkeypatch):
+        from stepwise.http.response import Response
+
+        monkeypatch.setenv("ENV_NAME", "dev")
+        monkeypatch.setenv("CORS_ALLOW_ORIGIN", "https://example.cloudfront.net")
+        assert Response.cors_headers()["Access-Control-Allow-Origin"] == (
+            "https://example.cloudfront.net"
+        )
+
+    def test_local_development_still_permits_a_wildcard(self, monkeypatch):
+        from stepwise.http.response import Response
+
+        monkeypatch.delenv("ENV_NAME", raising=False)
+        monkeypatch.delenv("CORS_ALLOW_ORIGIN", raising=False)
+        assert Response.cors_headers()["Access-Control-Allow-Origin"] == "*"
+
+    def test_responses_vary_on_origin(self, monkeypatch):
+        """The permitted origin is configuration, so caches must key on it."""
+        from stepwise.http.response import Response
+
+        assert Response.cors_headers()["Vary"] == "Origin"
+
+
+class TestConfigurationHandling:
+    """Configuration reaches the Lambda as environment, never via a runtime call."""
+
+    def test_settings_never_import_boto3(self):
+        """A runtime SSM call would be a round trip on every cold start."""
+        import inspect
+
+        from stepwise import settings
+
+        source = inspect.getsource(settings)
+        assert "boto3" not in source
+        assert "get_parameter" not in source
+
+    def test_required_configuration_errors_name_the_variable_not_its_value(self):
+        from stepwise.settings import Settings
+
+        store = Settings({"SOME_TOKEN": "super-secret-value"})
+        try:
+            store.require("MISSING_TOKEN")
+        except RuntimeError as exc:
+            assert "MISSING_TOKEN" in str(exc)
+            assert "super-secret-value" not in str(exc)
+        else:
+            raise AssertionError("require() should raise when unset")
+
+    def test_health_output_reports_presence_not_values(self):
+        from stepwise.settings import Settings
+
+        described = Settings(
+            {"ENV_NAME": "dev", "REGION_BUCKET": "b", "BUILDER_FUNCTION_NAME": "f"}
+        ).describe()
+        assert described["on_demand_regions"] is True
+        assert "b" not in described.values()
+
+    def test_sensitive_names_are_recognised(self):
+        from stepwise.settings import Settings
+
+        assert Settings.is_sensitive("SENTRY_DSN")
+        assert Settings.is_sensitive("API_TOKEN")
+        assert not Settings.is_sensitive("REGION_BUCKET")
+
+
 class TestAccessControl:
     def test_cors_is_not_a_wildcard(self, template):
         """The request body carries a home address and health inputs; no other

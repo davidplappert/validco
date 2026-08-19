@@ -51,6 +51,8 @@ class Request:
         self.path = self._strip_stage(raw_path, ctx.get("stage"))
         self.identity = identity
         self.query: dict[str, Any] = event.get("queryStringParameters") or {}
+        #: Populated by the router when a templated route matches.
+        self.path_params: dict[str, str] = {}
         self._body: dict[str, Any] | None = None
 
     @staticmethod

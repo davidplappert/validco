@@ -16,6 +16,16 @@ Parameters:
     Type: String
     Default: main
     Description: The only branch whose workflow runs may assume the deploy role.
+  GitHubOwnerId:
+    Type: String
+    Default: "8430938"
+    Description: >
+      GitHub's immutable numeric id for the owner. Needed because this account
+      issues OIDC subjects in the id-qualified form — see the trust policy.
+  GitHubRepoId:
+    Type: String
+    Default: "1339679623"
+    Description: GitHub's immutable numeric id for the repository.
   DeployEnvironment:
     Type: String
     Default: dev
@@ -65,12 +75,28 @@ Resources:
                 # Without this the role would trust *any* GitHub repository's
                 # workflow, which is the classic OIDC misconfiguration.
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                # A list here means "any of these", not "all of these". Two
-                # subjects are needed because the deploy job declares a GitHub
-                # Environment, which rewrites the subject claim.
+                # A list means "any of these", not "all of these". Four exact
+                # subjects are listed rather than a wildcard, because two
+                # independent things each vary the claim:
+                #
+                # 1. A job that declares a GitHub Environment gets
+                #    `...:environment:NAME` instead of `...:ref:refs/heads/...`.
+                # 2. This account issues subjects in GitHub's *id-qualified*
+                #    form, `owner@<ownerId>/repo@<repoId>`, which survives a
+                #    rename of either. That is the form actually observed in
+                #    CloudTrail when the first deploy was denied.
+                #
+                # Wildcards would cover all four in one line, but
+                # `repo:davidplappert*/...` would also match an account named
+                # `davidplappertsomethingelse`. Exact values cost four lines and
+                # leave no room for that.
                 token.actions.githubusercontent.com:sub:
                   - !Sub repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${DeployBranch}
                   - !Sub repo:${GitHubOrg}/${GitHubRepo}:environment:${DeployEnvironment}
+                  - !Sub >-
+                    repo:${GitHubOrg}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:ref:refs/heads/${DeployBranch}
+                  - !Sub >-
+                    repo:${GitHubOrg}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:environment:${DeployEnvironment}
       Policies:
         - PolicyName: assume-cdk-roles
           PolicyDocument:

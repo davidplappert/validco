@@ -8,6 +8,7 @@ size happens at request time, which is what keeps cold starts fast.
 
 from __future__ import annotations
 
+import difflib
 import logging
 from bisect import bisect_left
 from typing import Any
@@ -15,6 +16,11 @@ from typing import Any
 from ..container import Container
 
 LOG = logging.getLogger(__name__)
+
+#: Similarity threshold for "did you mean" street suggestions. Tuned by hand:
+#: 0.72 catches a transposed or dropped letter without proposing streets that
+#: merely share a suffix, which is worse than offering nothing.
+FUZZY_CUTOFF = 0.72
 
 
 class AddressIndex:
@@ -96,9 +102,15 @@ class AddressIndex:
     def street_candidates(self, street_norm: str, limit: int = 5) -> list[str]:
         """Street names resembling a query, for a "did you mean" response.
 
-        Ranked exact, then prefix, then substring. A geocoding miss is almost
-        always a spelling or a missing suffix, so returning candidates turns a
-        dead end into a correction the user can act on.
+        Ranked exact, then prefix, then substring, then fuzzy. A geocoding miss
+        is almost always a typo or a missing suffix, so returning candidates
+        turns a dead end into a correction the user can act on.
+
+        The fuzzy pass is what rescues a genuine misspelling — "Californa St"
+        finds "California Street", which neither prefix nor substring matching
+        would. It runs only when the cheaper passes found nothing, because it
+        scans the whole street dictionary; at a few thousand streets per region
+        that is a couple of milliseconds, and only on a miss.
         """
         if not street_norm:
             return []
@@ -107,4 +119,12 @@ class AddressIndex:
         contains = sorted(
             s for s in self.ranges if street_norm in s and s not in exact and s not in prefix
         )
-        return [self.display.get(s, s) for s in (exact + prefix + contains)[:limit]]
+        ranked = exact + prefix + contains
+
+        if not ranked:
+            ranked = difflib.get_close_matches(
+                street_norm, list(self.ranges), n=limit, cutoff=FUZZY_CUTOFF
+            )
+            LOG.debug("fuzzy street match query=%r hits=%d", street_norm, len(ranked))
+
+        return [self.display.get(s, s) for s in ranked[:limit]]

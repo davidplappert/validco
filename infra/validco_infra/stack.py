@@ -31,6 +31,8 @@ gateway, and X-Ray on both. The README says how to dial it back.
 
 from __future__ import annotations
 
+import logging
+
 from aws_cdk import (
     Aws,
     CfnOutput,
@@ -68,9 +70,15 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+LOG = logging.getLogger(__name__)
+
 # Two weeks is plenty to debug a demo and keeps CloudWatch ingest well inside
 # the free tier even with DEBUG logging on every request.
 LOG_RETENTION = logs.RetentionDays.TWO_WEEKS
+
+#: The basemap tile host. Declared once because it has to appear in two CSP
+#: directives — see the note in `_security_headers` — and the two must agree.
+TILE_HOST = "https://tile.openstreetmap.org"
 
 
 class StepWiseStack(Stack):
@@ -82,9 +90,11 @@ class StepWiseStack(Stack):
         env_name: str,
         api_dir: str,
         web_dir: str | None,
+        builder_dir: str | None = None,
         app_version: str,
         log_level: str = "DEBUG",
         trace_request_bodies: bool = True,
+        parameters: dict[str, str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -96,9 +106,31 @@ class StepWiseStack(Stack):
         # (which redact those fields) become the only record.
         self.trace_request_bodies = trace_request_bodies
 
+        # Configuration read from SSM at *deploy* time by the workflow and
+        # handed in here, rather than fetched by the Lambda at run time. See
+        # `stepwise.settings` for why: a runtime GetParameter is a round trip on
+        # every cold start, and reading os.environ cannot fail.
+        #
+        # Everything stored in SSM is a SecureString, so it is KMS-encrypted at
+        # rest. Note that a value copied into a Lambda environment variable is
+        # then readable via GetFunctionConfiguration — fine for configuration,
+        # wrong for a high-value secret. Nothing here is one.
+        self.parameters = parameters or {}
+        if self.parameters:
+            LOG.info(
+                "injecting %d parameter(s) from SSM into the function environment",
+                len(self.parameters),
+            )
+
         site_bucket = self._site_bucket()
         distribution = self._distribution(site_bucket)
-        fn = self._function(api_dir, app_version, log_level, distribution)
+
+        # The on-demand coverage store. Regions are extracted once, cached
+        # here, and served to every container thereafter.
+        region_bucket = self._region_bucket()
+        builder = self._builder_function(builder_dir, log_level) if builder_dir else None
+
+        fn = self._function(api_dir, app_version, log_level, distribution, region_bucket, builder)
         api = self._rest_api(fn, distribution)
 
         # The frontend is a static export, so it cannot be built with the API
@@ -122,6 +154,19 @@ class StepWiseStack(Stack):
             description="Liveness probe",
         )
         CfnOutput(self, "SiteBucketName", value=site_bucket.bucket_name)
+        CfnOutput(
+            self,
+            "RegionBucketName",
+            value=region_bucket.bucket_name,
+            description="Cache of on-demand region datasets",
+        )
+        if builder is not None:
+            CfnOutput(
+                self,
+                "BuilderFunctionName",
+                value=builder.function_name,
+                description="Lambda that extracts a new region from Overture",
+            )
         CfnOutput(self, "FunctionName", value=fn.function_name)
         CfnOutput(self, "DistributionId", value=distribution.distribution_id)
 
@@ -172,10 +217,15 @@ class StepWiseStack(Stack):
                 # React sets style attributes (progress bar widths).
                 "style-src 'self' 'unsafe-inline'",
                 # OSM raster tiles, plus the data:/blob: URIs MapLibre generates.
-                "img-src 'self' data: blob: https://tile.openstreetmap.org",
+                f"img-src 'self' data: blob: {TILE_HOST}",
                 # MapLibre runs its tile workers from a blob URL.
                 "worker-src 'self' blob:",
-                f"connect-src 'self' https://*.execute-api.{Aws.REGION}.amazonaws.com",
+                # The tile host belongs here as well as in img-src. MapLibre
+                # fetches raster tiles through the Fetch API rather than as
+                # <img> elements — so it needs the tile host in connect-src, and
+                # img-src alone leaves the map blank with a console full of CSP
+                # violations. Found the hard way on the first deployment.
+                f"connect-src 'self' {TILE_HOST} https://*.execute-api.{Aws.REGION}.amazonaws.com",
                 "font-src 'self' data:",
                 "object-src 'none'",
                 "base-uri 'self'",
@@ -210,15 +260,88 @@ class StepWiseStack(Stack):
             ),
         )
 
+    def _region_bucket(self) -> s3.Bucket:
+        """Where on-demand regions are cached once built.
+
+        No lifecycle expiry: this is a shared cache whose whole value is that a
+        city extracted for one person is instant for the next. A region is
+        roughly 10-25 MB, so even a hundred cities is well inside the free tier,
+        and evicting them would only force repeat extractions.
+        """
+        return s3.Bucket(
+            self,
+            "RegionBucket",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+            lifecycle_rules=[
+                # Half-finished multipart uploads from a builder that was
+                # killed mid-upload would otherwise accrue storage silently.
+                s3.LifecycleRule(abort_incomplete_multipart_upload_after=Duration.days(1))
+            ],
+        )
+
+    def _builder_function(self, builder_dir: str, log_level: str) -> lambda_.Function:
+        """The region extractor.
+
+        A separate function from the API on purpose. It carries DuckDB and
+        Pillow — about 80 MB — needs minutes rather than milliseconds, and wants
+        far more memory. Sharing a package with the request path would inflict
+        all of that on every plan request's cold start.
+        """
+        log_group = logs.LogGroup(
+            self,
+            "BuilderFunctionLogs",
+            retention=LOG_RETENTION,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
+        return lambda_.Function(
+            self,
+            "BuilderFunction",
+            runtime=lambda_.Runtime.PYTHON_3_13,
+            architecture=lambda_.Architecture.ARM_64,
+            handler="handler.handler",
+            code=lambda_.Code.from_asset(builder_dir),
+            # Chosen for CPU: extraction and graph assembly are compute-bound,
+            # and Lambda scales vCPU with memory. Also gives DuckDB room to
+            # sort without spilling.
+            memory_size=3008,
+            timeout=Duration.minutes(14),
+            # DuckDB writes its extensions and spill files here, and terrain
+            # tiles are cached across invocations on a warm container.
+            ephemeral_storage_size=Size.gibibytes(2),
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=log_group,
+            # One extraction at a time. Overture's bucket is a shared public
+            # resource, and this also bounds the cost of a burst of requests
+            # for uncovered cities.
+            reserved_concurrent_executions=3,
+            environment={
+                "LOG_LEVEL": log_level,
+                "ENV_NAME": self.env_name,
+                "PYTHONUNBUFFERED": "1",
+                # DuckDB resolves a writable home for its extension cache.
+                "HOME": "/tmp",
+            },
+        )
+
     def _distribution(self, bucket: s3.Bucket) -> cloudfront.Distribution:
         headers = self._security_headers()
+        # One origin shared by both behaviours. Constructing it per behaviour
+        # would make CDK emit two origins and two Origin Access Controls for
+        # the same bucket — harmless but redundant, and it muddies the answer
+        # to "what can CloudFront reach".
+        origin = origins.S3BucketOrigin.with_origin_access_control(bucket)
         return cloudfront.Distribution(
             self,
             "SiteDistribution",
             comment=f"stepwise-{self.env_name} static site",
             default_root_object="index.html",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.S3BucketOrigin.with_origin_access_control(bucket),
+                origin=origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                 response_headers_policy=headers,
@@ -229,7 +352,7 @@ class StepWiseStack(Stack):
                 # day, a redeploy that moved the API would leave every visitor
                 # pointed at the old one until the cache expired.
                 "/config.json": cloudfront.BehaviorOptions(
-                    origin=origins.S3BucketOrigin.with_origin_access_control(bucket),
+                    origin=origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                     response_headers_policy=headers,
@@ -266,6 +389,8 @@ class StepWiseStack(Stack):
         app_version: str,
         log_level: str,
         distribution: cloudfront.Distribution,
+        region_bucket: s3.Bucket,
+        builder: lambda_.Function | None,
     ) -> lambda_.Function:
         log_group = logs.LogGroup(
             self,
@@ -274,7 +399,7 @@ class StepWiseStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        return lambda_.Function(
+        function = lambda_.Function(
             self,
             "ApiFunction",
             runtime=lambda_.Runtime.PYTHON_3_13,
@@ -303,8 +428,22 @@ class StepWiseStack(Stack):
                 # SDK is ever added; harmless otherwise.
                 "AWS_XRAY_CONTEXT_MISSING": "LOG_ERROR",
                 "PYTHONUNBUFFERED": "1",
+                "REGION_BUCKET": region_bucket.bucket_name,
+                **({"BUILDER_FUNCTION_NAME": builder.function_name} if builder else {}),
+                # Deploy-time configuration, last so it can override defaults.
+                **self.parameters,
             },
         )
+
+        # The API reads cached regions and writes status documents — the
+        # conditional PutObject that claims a build is the reason it needs
+        # write access at all.
+        region_bucket.grant_read_write(function)
+        if builder is not None:
+            builder.grant_invoke(function)
+            region_bucket.grant_read_write(builder)
+
+        return function
 
     # --- API --------------------------------------------------------------
 
@@ -349,7 +488,7 @@ class StepWiseStack(Stack):
                 # inputs, and there is no reason for another origin to be able
                 # to make the browser send them.
                 allow_origins=[f"https://{distribution.distribution_domain_name}"],
-                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
                 allow_headers=["Content-Type"],
                 max_age=Duration.days(1),
             ),

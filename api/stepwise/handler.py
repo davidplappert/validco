@@ -8,7 +8,10 @@ behaviour lives in ``stepwise.controllers``, ``stepwise.services`` and
 Routes
 ------
 ``GET  /v1/health``    liveness plus which datasets are resident
-``GET  /v1/regions``   coverage areas and their sizes
+``GET  /v1/regions``   coverage areas, ready and in progress
+``POST /v1/regions``   request coverage of somewhere new; returns a poll URL
+``GET  /v1/regions/{key}``     one region's state and build progress
+``DELETE /v1/regions/{key}``   clear a failed build so it can be retried
 ``GET  /v1/geocode``   free-text address to coordinates, from Overture addresses
 ``GET  /v1/places``    named destinations near a point
 ``POST /v1/plan``      the product: profile plus start point to ranked walks
@@ -30,7 +33,10 @@ from .controllers import (
     HealthController,
     PlacesController,
     PlanController,
+    RegionDeleteController,
+    RegionRequestController,
     RegionsController,
+    RegionStatusController,
 )
 from .http.router import Router
 from .logging_config import configure
@@ -49,6 +55,9 @@ def build_router() -> Router:
         Router()
         .register("GET", "/v1/health", HealthController())
         .register("GET", "/v1/regions", RegionsController())
+        .register("POST", "/v1/regions", RegionRequestController())
+        .register("GET", "/v1/regions/{key}", RegionStatusController())
+        .register("DELETE", "/v1/regions/{key}", RegionDeleteController())
         .register("GET", "/v1/geocode", GeocodeController())
         .register("GET", "/v1/places", PlacesController())
         .register("POST", "/v1/plan", PlanController())

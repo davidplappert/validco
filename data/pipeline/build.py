@@ -52,7 +52,9 @@ from .elevation import TerrainSampler
 
 # The container format lives with the runtime code so the writer and reader can
 # never disagree about the layout.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "api"))
+_API_ROOT = Path(__file__).resolve().parents[2] / "api"
+if _API_ROOT.is_dir():
+    sys.path.insert(0, str(_API_ROOT))
 from stepwise.container import ContainerWriter  # noqa: E402
 from stepwise.services.geocoder import StreetNormalizer  # noqa: E402
 

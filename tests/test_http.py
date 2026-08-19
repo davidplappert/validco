@@ -136,10 +136,43 @@ class TestErrors:
 
     def test_detail_is_carried_into_the_body(self):
         error = NotFound("no such street", suggestions=["Market Street"])
-        assert error.to_dict() == {
-            "error": "no such street",
-            "suggestions": ["Market Street"],
+        payload = error.to_dict()
+        assert payload["error"] == "no such street"
+        assert payload["suggestions"] == ["Market Street"]
+
+    def test_errors_carry_a_machine_code_and_human_copy(self):
+        """Three audiences, one payload: a code the frontend branches on, prose
+        a person reads, and a developer message for the logs."""
+        error = NotFound("no such street")
+        payload = error.to_dict()
+        assert payload["code"] == "not_found"
+        assert payload["title"] and payload["detail"]
+        assert payload["error"] == "no such street"
+
+    def test_an_error_can_carry_a_recovery_action(self):
+        """The not-covered case is only useful because it says what to do next."""
+        from stepwise.http.errors import ErrorAction, RegionNotCovered
+
+        error = RegionNotCovered(
+            "no coverage", action=ErrorAction("add_region", "Add this area", place="Austin")
+        )
+        payload = error.to_dict()
+        assert payload["code"] == "region_not_covered"
+        assert payload["action"] == {
+            "kind": "add_region",
+            "label": "Add this area",
+            "place": "Austin",
         }
+
+    def test_subclasses_inherit_sensible_defaults(self):
+        from stepwise.http.errors import AddressNotFound, NoWalkableNetwork, RegionBuilding
+
+        assert AddressNotFound().status == 404
+        assert RegionBuilding().status == 409
+        assert NoWalkableNetwork().status == 422
+        # Every one must ship user-facing copy, not just a code.
+        for cls in (AddressNotFound, RegionBuilding, NoWalkableNetwork):
+            assert cls.title and cls.detail
 
 
 class TestResponse:
@@ -152,7 +185,7 @@ class TestResponse:
     def test_includes_cors_headers(self):
         headers = Response.ok({}).to_lambda()["headers"]
         assert "Access-Control-Allow-Origin" in headers
-        assert headers["Access-Control-Allow-Methods"] == "GET,POST,OPTIONS"
+        assert headers["Access-Control-Allow-Methods"] == "GET,POST,DELETE,OPTIONS"
 
     def test_honours_the_configured_origin(self, monkeypatch):
         monkeypatch.setenv("CORS_ALLOW_ORIGIN", "https://example.cloudfront.net")

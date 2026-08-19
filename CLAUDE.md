@@ -36,7 +36,7 @@ Assignment site: https://valid-takehome-demo-mauve.vercel.app (password `CUGVvq1
 | **Very OOP; heavy models, thin controllers** | see *Architecture* |
 | **Component-heavy frontend** | ~30 components, none over ~120 lines |
 | **Inline docs on every method** | maintain this — every method has a docstring |
-| **Thorough tests both sides, wired to CI/CD** | 372 tests |
+| **Thorough tests both sides, wired to CI/CD** | 410 tests |
 | **Secure: endpoints, data, IAM, pipelines** | see *Security* |
 | **Optimised page load and query times** | see *Performance* |
 | README explaining the tech, with links | `README.md` |
@@ -66,7 +66,7 @@ web/                   Next.js 15 static export + React 19 + Tailwind v4 + MapLi
   src/lib/             api.ts, types.ts, format.ts
   tests/               Vitest (components, hooks, lib) + Playwright (e2e)
 bootstrap/             One-time GitHub OIDC CloudFormation (already applied)
-tests/                 290 backend tests, all offline
+tests/                 310 backend tests, all offline
 openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```
 
@@ -75,7 +75,7 @@ openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```bash
 uv sync --all-groups                      # local env (Python 3.13)
 
-uv run pytest                             # 290 tests, ~3s, no network
+uv run pytest                             # 310 tests, ~3s, no network
 uv run ruff check api data infra tests
 uv run ruff format api data infra tests
 
@@ -150,6 +150,13 @@ Activities: a 2.5 mph flat walk gives 3.1 MET against a published 3.0.
 - The stubbed Playwright specs skip when `E2E_BASE_URL` is set. Running them
   against a deployment would intercept the very API they were meant to verify;
   `deployed.spec.ts` covers that case un-stubbed.
+- **MapLibre fetches raster tiles with `fetch()`, not `<img>`.** The tile host
+  must therefore appear in **both** `img-src` and `connect-src`. Listing it only
+  in `img-src` shipped a blank map to production with hundreds of console
+  violations, while every test passed — because none of them ran a real CSP.
+  `web/tests/e2e/csp.spec.ts` now applies the deployed policy to the real bundle
+  and fails on any violation; it was verified to fail when the bug is
+  reintroduced.
 
 ## Security
 
@@ -241,12 +248,12 @@ accurate data, not a bug.
 
 ## Testing
 
-372 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
+410 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
 
-- 0 backend (physiology, models, health, services, http, api, infra, security,
+- 310 backend (physiology, models, health, services, http, api, infra, security,
   performance, container, geocode, openapi)
 - 52 Vitest (components, hooks, formatting, API client)
-- 30 Playwright (desktop + mobile, against a local static export with the API
+- 48 Playwright (desktop + mobile, against a local static export with the API
   stubbed)
 
 Load-bearing properties, worth preserving:

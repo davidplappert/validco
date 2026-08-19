@@ -26,7 +26,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  # `write` only so the deploy job can push the README's refreshed URLs back.
+  # Nothing else in this workflow writes to the repository.
+  contents: write
   id-token: write # required to fetch the OIDC token for AWS
 
 env:
@@ -53,10 +55,10 @@ jobs:
         run: uv sync --all-groups
 
       - name: Lint
-        run: uv run ruff check api data infra tests
+        run: uv run ruff check api data infra tests builder
 
       - name: Format check
-        run: uv run ruff format --check api data infra tests
+        run: uv run ruff format --check api data infra tests builder
 
       # The whole backend suite, including the infrastructure assertions that
       # pin X-Ray, CloudTrail and log retention.
@@ -219,6 +221,50 @@ jobs:
           name: playwright-report-deployed
           path: web/playwright-report
           retention-days: 7
+
+      # Keep the README's live links accurate without anyone remembering to.
+      # The deploy trigger ignores "**/*.md", so this commit cannot start
+      # another deploy — but [skip ci] is added as a second belt.
+      - name: Update the README with the deployed URLs
+        if: success()
+        env:
+          SITE: ${{ steps.outputs.outputs.site_url }}
+          API: ${{ steps.outputs.outputs.api_url }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re
+
+          site, api = os.environ["SITE"], os.environ["API"]
+          block = "\n".join([
+              "<!-- deploy:urls:start -->",
+              "| | |",
+              "|---|---|",
+              f"| **Web app** | <{site}> |",
+              f"| **API** | <{api}> |",
+              f"| **Health check** | <{api}/v1/health> |",
+              "| **API reference** | [`openapi.yaml`](openapi.yaml) — OpenAPI 3.1 |",
+              "<!-- deploy:urls:end -->",
+          ])
+          path = pathlib.Path("README.md")
+          text = path.read_text()
+          updated = re.sub(
+              r"<!-- deploy:urls:start -->.*?<!-- deploy:urls:end -->",
+              block, text, flags=re.S,
+          )
+          path.write_text(updated)
+          print("changed" if updated != text else "unchanged")
+          PY
+
+          if git diff --quiet README.md; then
+            echo "README already current"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: refresh deployed URLs [skip ci]"
+          git push origin HEAD:main
 
       - name: Job summary
         if: always()

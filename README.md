@@ -1,18 +1,21 @@
 # StepWise
 
-**Walking routes scored for your body, built on [Overture Maps](https://overturemaps.org) open data.**
+> **StepWise turns your body and a spare half hour into a walk worth taking —
+> using Overture's open map data to find routes whose hills, surfaces and length
+> actually suit you, and telling you honestly what they will do for your health.**
 
 Enter your sex, age, weight and home address. StepWise suggests walking loops from
 your door — each with real elevation from a DEM, an honest time estimate, the
 calories and steps it will actually cost *you*, and how much of it you will spend
 on a footpath rather than in the roadway.
 
+<!-- deploy:urls:start -->
 | | |
 |---|---|
 | **Web app** | _(published by the deploy workflow — see [Deployment](#deployment))_ |
 | **API** | _(published by the deploy workflow)_ |
 | **API reference** | [`openapi.yaml`](openapi.yaml) — OpenAPI 3.1 |
-| **Health check** | `GET /v1/health` |
+<!-- deploy:urls:end -->
 
 Built as a take-home for [Valid](https://www.valid.co). The brief was one line:
 *"Overture Maps publishes free, open map data. Build a web app product on top of
@@ -202,7 +205,7 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 
 ## Testing
 
-**372 tests**, wired into CI on every push and pull request.
+**410 tests**, wired into CI on every push and pull request.
 
 | Suite | Count | What it covers |
 |---|---:|---|
@@ -219,7 +222,7 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 | `tests/test_security.py` | 20 | CSP, CORS, log redaction, IAM, input bounds |
 | `tests/test_performance.py` | 10 | Cold start, query latency, response size |
 | `web/tests/**` (Vitest) | 52 | Components, hooks, formatting, the API client |
-| `web/tests/e2e/**` (Playwright) | 30 | The real bundle, desktop and mobile |
+| `web/tests/e2e/**` (Playwright) | 48 | The real bundle, desktop and mobile, under the real CSP |
 
 A few of these are load-bearing in ways worth calling out:
 
@@ -231,6 +234,12 @@ A few of these are load-bearing in ways worth calling out:
   private. Removing any of them fails CI rather than quietly shipping.
 - **The OpenAPI tests detect drift.** Adding a route without documenting it, or
   changing a guideline constant without updating the spec, both fail.
+- **The CSP is tested in a browser, not just in the template.** A policy
+  asserted only against CloudFormation is not asserted against a browser: the
+  tile host was once listed under `img-src` but not `connect-src`, and because
+  MapLibre fetches raster tiles with `fetch()` rather than as `<img>`, the map
+  shipped blank while every test passed. `csp.spec.ts` now applies the deployed
+  policy to the real bundle and fails on any violation.
 - **The Playwright suite runs twice.** Against a local static export with the API
   stubbed (fast, deterministic), and — in the deploy workflow, after
   `cdk deploy` — against the real CloudFront distribution with **nothing

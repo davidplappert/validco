@@ -8,7 +8,13 @@ from .base import Controller
 from .geocode import GeocodeController
 from .places import PlacesController
 from .plan import PlanController, ProfileFactory, StartPointResolver
-from .system import HealthController, RegionsController
+from .regions import (
+    RegionDeleteController,
+    RegionRequestController,
+    RegionsController,
+    RegionStatusController,
+)
+from .system import HealthController
 
 __all__ = [
     "Controller",
@@ -17,6 +23,9 @@ __all__ = [
     "PlacesController",
     "PlanController",
     "ProfileFactory",
+    "RegionDeleteController",
+    "RegionRequestController",
+    "RegionStatusController",
     "RegionsController",
     "StartPointResolver",
 ]

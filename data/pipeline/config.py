@@ -16,7 +16,12 @@ from typing import NamedTuple
 # they are defined once alongside the runtime reader and imported here. Keeping
 # a second copy in the builder is exactly how a dataset ends up being written
 # with one meaning and read with another.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "api"))
+# In the repository the runtime package lives under `api/`; in the builder's
+# Lambda bundle it sits alongside this one and is already importable. Only add
+# the path when it actually exists, so both layouts work unchanged.
+_API_ROOT = Path(__file__).resolve().parents[2] / "api"
+if _API_ROOT.is_dir():
+    sys.path.insert(0, str(_API_ROOT))
 from stepwise.config import (  # noqa: E402
     DATASET_VERSION,
     FLAG_BRIDGE,
