@@ -60,7 +60,14 @@ class SuggestController(Controller):
         if len(query) < MIN_QUERY_CHARS or len(query) > MAX_QUERY_CHARS:
             return Response.ok({"query": query, "suggestions": []})
 
-        keys = [request.query["region"]] if request.query.get("region") else self.registry.keys()
+        # An explicitly named region is loaded whatever it costs — that is the
+        # region the user is planning in. Otherwise only regions already on
+        # local disk are consulted, so a keystroke never triggers an S3
+        # download. See ``RegionDatasets.is_local``.
+        if request.query.get("region"):
+            keys = [request.query["region"]]
+        else:
+            keys = [k for k in self.registry.keys() if self._is_cheap(k)]
 
         suggestions: list[dict] = []
         for key in keys:
@@ -76,6 +83,13 @@ class SuggestController(Controller):
                 "attribution": ATTRIBUTION,
             }
         )
+
+    def _is_cheap(self, region_key: str) -> bool:
+        """Whether this region's address index can be read without a download."""
+        try:
+            return self.registry.datasets(region_key).is_local("addr")
+        except KeyError:
+            return False
 
     def _for_region(self, region_key: str, query: str, limit: int) -> list[dict]:
         """Completions from one region's address index."""

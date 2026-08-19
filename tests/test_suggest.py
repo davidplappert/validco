@@ -124,3 +124,46 @@ class TestLatency:
             suggest(query)
             worst = max(worst, (time.perf_counter() - started) * 1000.0)
         assert worst < 150, f"slowest keystroke took {worst:.0f}ms"
+
+
+class TestSuggestDoesNotDownload:
+    """Autocomplete must never pull a region's containers over the network.
+
+    Suggestions fire on every keystroke. Before this guard the controller
+    iterated every *known* region — including on-demand ones whose containers
+    live only in S3 — and reading ``.addresses`` on one of those downloads a
+    multi-megabyte file. That is an S3 GET per keypress: slow, billed, and
+    invisible until someone watches the logs.
+    """
+
+    def test_skips_regions_that_are_not_on_local_disk(self, monkeypatch):
+        """A region present only in the catalogue is silently passed over."""
+        from stepwise.datasets.registry import REGISTRY
+
+        class Remote:
+            """Stands in for a region whose containers live only in S3."""
+
+            def is_local(self, suffix: str) -> bool:
+                """Nothing has been downloaded to this container yet."""
+                return False
+
+            @property
+            def addresses(self):
+                """Reaching this means a keystroke hit the network."""
+                raise AssertionError("suggest downloaded a remote region's addresses")
+
+        real = REGISTRY.datasets
+        monkeypatch.setattr(
+            REGISTRY, "datasets", lambda key: Remote() if key == "remote-city" else real(key)
+        )
+        monkeypatch.setattr(REGISTRY, "keys", lambda: [*REGISTRY.regions, "remote-city"])
+
+        # Would raise from the property above if the remote region were touched.
+        assert labels("california")
+
+    def test_a_named_region_is_still_served(self, monkeypatch):
+        """Naming a region opts into loading it — that is where the user is."""
+        from stepwise.datasets.registry import REGISTRY
+
+        key = next(iter(REGISTRY.regions))
+        assert labels("california", region=key)

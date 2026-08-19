@@ -113,6 +113,22 @@ class RegionDatasets:
             self._green = GreenIndex(self._load("green"))
         return self._green
 
+    def is_local(self, suffix: str) -> bool:
+        """Whether one container can be opened without touching the network.
+
+        True for a bundled region always, and for an on-demand region once this
+        Lambda container has downloaded it to /tmp.
+
+        This exists for autocomplete. Suggestions run on every keystroke and
+        iterate whatever regions are known, so without this check a single
+        keypress could trigger an S3 download of every on-demand region's
+        address container — several megabytes each, repeated per key, on a code
+        path that is supposed to cost nothing.
+        """
+        if (self.data_dir / f"{self.key}.{suffix}.spw").exists():
+            return True
+        return (CACHE_DIR / f"{self.key}.{suffix}.spw").exists()
+
     def loaded(self) -> dict[str, bool]:
         """Which datasets this container has actually materialised.
 
