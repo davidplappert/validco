@@ -52,7 +52,13 @@ test("plans a real walk end to end", async ({ page }) => {
 
   // The origin summary proves the geocoder resolved against the real Overture
   // address corpus rather than a fixture.
-  await expect(page.getByText(/MAIN Street/i)).toBeVisible();
+  //
+  // Matched as a whole line rather than a substring: the street name also
+  // appears in each route's "via ..." list, and a loose regex matches several
+  // elements at once, which Playwright treats as an error rather than a pass.
+  await expect(
+    page.getByText(/^\d+ North MAIN Street, \d{5}$/i),
+  ).toBeVisible();
   await expect(page.getByText(/Snapped \d+ m to the walking network/)).toBeVisible();
 });
 
