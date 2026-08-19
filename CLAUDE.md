@@ -37,8 +37,9 @@ Assignment site: https://valid-takehome-demo-mauve.vercel.app (password `CUGVvq1
 | **Very OOP; heavy models, thin controllers** | see *Architecture* |
 | **Component-heavy frontend** | ~30 components, none over ~120 lines |
 | **Inline docs on every method** | maintain this — every method has a docstring |
-| **Thorough tests both sides, wired to CI/CD** | 410 tests |
+| **Thorough tests both sides, wired to CI/CD** | 419 tests |
 | **Secure: endpoints, data, IAM, pipelines** | see *Security* |
+| **No personal data in this public repo** | scrubbed; `tests/test_privacy.py` fails the build if it returns |
 | **Optimised page load and query times** | see *Performance* |
 | README explaining the tech, with links | `README.md` |
 | `openapi.yaml` with full API detail | validated + drift-tested in CI |
@@ -67,7 +68,7 @@ web/                   Next.js 15 static export + React 19 + Tailwind v4 + MapLi
   src/lib/             api.ts, types.ts, format.ts
   tests/               Vitest (components, hooks, lib) + Playwright (e2e)
 bootstrap/             One-time GitHub OIDC CloudFormation (already applied)
-tests/                 310 backend tests, all offline
+tests/                 319 backend tests, all offline
 openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```
 
@@ -76,7 +77,7 @@ openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```bash
 uv sync --all-groups                      # local env (Python 3.13)
 
-uv run pytest                             # 310 tests, ~3s, no network
+uv run pytest                             # 319 tests, ~3s, no network
 uv run ruff check api data infra tests
 uv run ruff format api data infra tests
 
@@ -145,7 +146,8 @@ Activities: a 2.5 mph flat walk gives 3.1 MET against a published 3.0.
   from the runtime. **Changing it requires rebuilding the address containers**,
   or every lookup silently misses.
 - The house-number regex requires the suffix letter to be *adjacent* to the
-  digits. Allowing a space made "100 N Main St" search for "Main Street".
+  digits. Allowing a space made "100 N Main St" search for "Main Street"
+  without its directional prefix.
 - `ErrorPanel` carries `aria-label="Planning error"` because Next.js injects its
   own `role="alert"` route announcer; without the name, "the alert" is ambiguous.
 - The stubbed Playwright specs skip when `E2E_BASE_URL` is set. Running them
@@ -202,7 +204,7 @@ Measured, not assumed. `tests/test_performance.py` guards the numbers.
 | | Before | After |
 |---|---:|---:|
 | Cold start (all SF arrays + grid + addresses) | — | **~15 ms** |
-| Plan, Chillicothe 30 min | 5.3 ms | **4.1 ms** |
+| Plan, Morton 30 min | 5.3 ms | **4.1 ms** |
 | Plan, SF 40 min | 157 ms | **90 ms** |
 | Plan, SF 90 min | 437 ms | **224 ms** |
 | Frontend first-load JS | 382 kB | **110 kB** |
@@ -232,26 +234,44 @@ faster for this access pattern, not a shortcut around a database. A DB would
 start to make sense if the data were mutable, per-user, or too large for the
 package — it is none of those (25 MB, rebuilt offline from public data).
 
+## Privacy
+
+This repository is public, so it must contain **no personal data**. It was
+seeded during development with a real home address, coordinates and body
+weight; all of it has been replaced with public fixtures and
+`tests/test_privacy.py` fails the build if any of it reappears.
+
+Fixtures now used, all civic or commercial:
+
+- `100 N Main St, Morton, IL 61550` — a commercial main street
+- `1100 California St, San Francisco` — Grace Cathedral, on Nob Hill for terrain
+- Synthetic profile: male, 45, 320 lb, 6'0" — still obesity class III, so the
+  same code paths are exercised without describing a real person
+
+**Outstanding:** the git *history* still contains the original address, since
+scrubbing the working tree does not rewrite past commits. Removing it needs a
+history rewrite and a force push — David's call, not to be done unprompted.
+
 ## Regions
 
 | key | area | nodes | edges | addresses |
 |---|---|---:|---:|---:|
 | `sf` | San Francisco, CA | 82,889 | 123,055 | 394,704 |
-| `pia` | Peoria & Chillicothe, IL | 62,159 | 83,935 | 114,045 |
+| `pia` | Peoria & Morton, IL | 62,159 | 83,935 | 114,045 |
 
 Adding a city is one entry in `data/pipeline/config.py:REGIONS` plus a rebuild.
 Nothing in the routing or health code is city-specific.
 
-David's test address — `100 N Main St, Chillicothe, IL 61523` — is real,
-present in Overture, and used in the smoke test and the test suite. Chillicothe
+The primary test address — `100 N Main St, Morton, IL 61550` — is real,
+present in Overture, and used in the smoke test and the test suite. Morton
 has almost no mapped sidewalks, so routes there come back ~100% `road`; that is
 accurate data, not a bug.
 
 ## Testing
 
-410 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
+419 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
 
-- 310 backend (physiology, models, health, services, http, api, infra, security,
+- 319 backend (physiology, models, health, services, http, api, infra, security,
   performance, container, geocode, openapi)
 - 52 Vitest (components, hooks, formatting, API client)
 - 48 Playwright (desktop + mobile, against a local static export with the API

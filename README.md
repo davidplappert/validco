@@ -41,11 +41,11 @@ input, and the route has to come back to where it started.
 | Key | Area | Nodes | Edges | Addresses | Character |
 |---|---|---:|---:|---:|---|
 | `sf` | San Francisco, CA | 82,889 | 123,055 | 394,704 | Near-complete sidewalks, brutal terrain |
-| `pia` | Peoria & Chillicothe, IL | 62,159 | 83,935 | 114,045 | Sparse sidewalks, gentle bluffs |
+| `pia` | Peoria & Morton, IL | 62,159 | 83,935 | 114,045 | Sparse sidewalks, gentle bluffs |
 
 San Francisco because it is the city in Valid's own reference demo, and because
 it is a genuinely hard case. Peoria because a pipeline that only works on the
-most atypical city in America is not a pipeline. Routes in Chillicothe come back
+most atypical city in America is not a pipeline. Routes in Morton come back
 close to 100% `road` — that is accurate data about a town with few mapped
 sidewalks, not a bug, and the app says so rather than pretending otherwise.
 
@@ -205,7 +205,7 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 
 ## Testing
 
-**410 tests**, wired into CI on every push and pull request.
+**419 tests**, wired into CI on every push and pull request.
 
 | Suite | Count | What it covers |
 |---|---:|---|
@@ -293,7 +293,7 @@ Measured and profiled, with regression guards in `tests/test_performance.py`.
 | | Before | After |
 |---|---:|---:|
 | Cold start — decode SF arrays, build index, load addresses | — | **~15 ms** |
-| Plan a 30-minute walk (Chillicothe) | 5.3 ms | **4.1 ms** |
+| Plan a 30-minute walk (Morton) | 5.3 ms | **4.1 ms** |
 | Plan a 40-minute walk (San Francisco) | 157 ms | **90 ms** |
 | Plan a 90-minute walk (San Francisco) | 437 ms | **224 ms** |
 | Frontend first-load JavaScript | 382 kB | **110 kB** |

@@ -182,9 +182,18 @@ class TestResponse:
         assert json.loads(rendered["body"]) == {"ok": True}
         assert rendered["headers"]["content-type"] == "application/json"
 
-    def test_includes_cors_headers(self):
+    def test_includes_cors_headers(self, monkeypatch):
+        """Pins the environment explicitly rather than inheriting the runner's.
+
+        This test failed in CI but passed locally: the deploy workflow sets
+        ENV_NAME at the workflow level, which put the process into "deployed"
+        mode where CORS fails closed and omits the origin header. A test that
+        depends on ambient environment is testing the runner, not the code.
+        """
+        monkeypatch.setenv("ENV_NAME", "dev")
+        monkeypatch.setenv("CORS_ALLOW_ORIGIN", "https://example.cloudfront.net")
         headers = Response.ok({}).to_lambda()["headers"]
-        assert "Access-Control-Allow-Origin" in headers
+        assert headers["Access-Control-Allow-Origin"] == "https://example.cloudfront.net"
         assert headers["Access-Control-Allow-Methods"] == "GET,POST,DELETE,OPTIONS"
 
     def test_honours_the_configured_origin(self, monkeypatch):

@@ -129,7 +129,7 @@ test.describe("under the production Content-Security-Policy", () => {
     const { violations, errors } = await watchForViolations(page);
 
     await page.goto("/");
-    await page.getByLabel(/Start address/i).fill("100 N Main St, Chillicothe, IL");
+    await page.getByLabel(/Start address/i).fill("100 N Main St, Morton, IL");
     await page.getByRole("button", { name: /find me a walk/i }).click();
     await expect(page.getByLabel("Suggested walks")).toBeVisible();
     await page.waitForTimeout(1500);

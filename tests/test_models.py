@@ -59,7 +59,7 @@ class TestBoundingBox:
     def test_contains(self):
         box = BoundingBox(-122.53, 37.69, -122.34, 37.84)
         assert box.contains(Coordinate(37.7749, -122.4194))
-        assert not box.contains(Coordinate(40.6936, -89.5890))
+        assert not box.contains(Coordinate(40.6103, -89.4616))
 
     def test_round_trips_through_a_list(self):
         values = [-122.53, 37.69, -122.34, 37.84]
@@ -102,10 +102,10 @@ class TestGeocodeResult:
 class TestOrigin:
     def test_reports_both_the_request_and_the_snap(self):
         """The snap distance is how the app admits it moved the start point."""
-        origin = Origin(Coordinate(40.6936, -89.5890), Coordinate(40.6936, -89.5890), 42.1)
+        origin = Origin(Coordinate(40.61034, -89.46161), Coordinate(40.6104, -89.4612), 42.1)
         payload = origin.to_dict()
-        assert payload["lat"] == 40.6936
-        assert payload["snapped_lat"] == 40.6936
+        assert payload["lat"] == 40.61034
+        assert payload["snapped_lat"] == 40.6104
         assert payload["snap_distance_m"] == 42
 
 

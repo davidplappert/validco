@@ -7,7 +7,7 @@ catch a regression that would change the architecture's viability.
 The numbers they protect (measured on an M-series laptop):
 
     cold start, all arrays decoded   ~15 ms
-    plan, Chillicothe 30 min           ~4 ms
+    plan, Morton 30 min           ~4 ms
     plan, San Francisco 40 min        ~90 ms
     plan, San Francisco 90 min       ~224 ms
 
@@ -48,7 +48,7 @@ def plan(address: str, minutes: int) -> tuple[dict, float]:
 def warm():
     """Load the datasets before timing anything."""
     plan("1000 California St, San Francisco", 30)
-    plan("100 N Main St, Chillicothe, IL", 30)
+    plan("100 N Main St, Morton, IL", 30)
 
 
 class TestColdStart:
@@ -91,7 +91,7 @@ class TestColdStart:
 
 class TestQueryLatency:
     def test_a_sparse_region_plans_almost_instantly(self):
-        _, elapsed_ms = plan("100 N Main St, Chillicothe, IL", 30)
+        _, elapsed_ms = plan("100 N Main St, Morton, IL", 30)
         assert elapsed_ms < 150, f"took {elapsed_ms:.0f}ms"
 
     def test_a_dense_region_plans_within_budget(self):

@@ -52,14 +52,12 @@ class TestPlumbing:
 
 
 class TestGeocodeRoute:
-    def test_finds_a_real_chillicothe_address(self):
-        status, body = call(
-            "GET", "/v1/geocode", query={"q": "100 N Main St, Chillicothe, IL 61523"}
-        )
+    def test_finds_a_real_illinois_address(self):
+        status, body = call("GET", "/v1/geocode", query={"q": "100 N Main St, Morton, IL 61550"})
         assert status == 200 and body["found"] is True
         assert body["match"] == "exact"
-        assert body["lat"] == pytest.approx(40.6936, abs=0.01)
-        assert body["lon"] == pytest.approx(-89.5890, abs=0.01)
+        assert body["lat"] == pytest.approx(40.6103, abs=0.01)
+        assert body["lon"] == pytest.approx(-89.4616, abs=0.01)
 
     def test_finds_a_real_san_francisco_address(self):
         status, body = call("GET", "/v1/geocode", query={"q": "1000 California St, San Francisco"})
@@ -68,9 +66,7 @@ class TestGeocodeRoute:
 
     def test_a_missing_house_number_falls_back_to_the_nearest(self):
         """Address corpora always have holes; 'not found' is the wrong answer."""
-        status, body = call(
-            "GET", "/v1/geocode", query={"q": "709999 N Main St, Chillicothe IL"}
-        )
+        status, body = call("GET", "/v1/geocode", query={"q": "999999 N Main St, Morton IL"})
         assert status == 200
         assert body["match"] == "nearest_number"
 
@@ -82,13 +78,13 @@ class TestGeocodeRoute:
 
 @pytest.fixture(scope="module")
 def plan():
-    """One 30-minute plan from a real Chillicothe address, shared by the tests
+    """One 30-minute plan from a real Morton address, shared by the tests
     below — planning is fast but the graph load is not worth repeating."""
     status, body = call(
         "POST",
         "/v1/plan",
         body={
-            "address": "100 N Main St, Chillicothe, IL 61523",
+            "address": "100 N Main St, Morton, IL 61550",
             "minutes": 30,
             "profile": DAVID,
             "preferences": {"prefer_paths": True, "avoid_hills": True},

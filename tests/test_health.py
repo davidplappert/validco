@@ -122,8 +122,8 @@ class TestTobler:
 
 class TestProfile:
     def test_bmi_and_class(self):
-        p = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(361), height_cm=182.9)
-        assert p.bmi == pytest.approx(48.9, abs=0.5)
+        p = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(320), height_cm=182.9)
+        assert p.bmi == pytest.approx(43.4, abs=0.5)
         assert bmi_class(p.bmi) == "obesity class III"
 
     def test_height_defaults_are_flagged(self):
@@ -174,7 +174,7 @@ class TestEvaluateWalk:
         """A ~2.5 mph flat walk is 3.0 METs in the Compendium of Physical
         Activities. Landing within half a MET of that is the single best
         end-to-end check that the energy model is not drifting."""
-        p = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(361), height_cm=175.3)
+        p = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(320), height_cm=175.3)
         effort = evaluate_walk(p, [(2000.0, 0.0)])
         assert effort.avg_speed_ms * 2.23694 == pytest.approx(2.57, abs=0.2)
         assert effort.mets == pytest.approx(3.0, abs=0.5)
@@ -228,7 +228,7 @@ class TestEvaluateWalk:
 
 class TestHealthEffects:
     def test_guideline_and_step_progress(self):
-        p = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(361), height_cm=182.9)
+        p = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(320), height_cm=182.9)
         effort = evaluate_walk(p, [(2500.0, 0.0)])
         effects = health_effects(p, effort)
 
@@ -271,7 +271,7 @@ class TestHealthEffects:
 
 class TestSuitability:
     def test_steep_route_scores_worse_for_a_high_bmi_walker(self):
-        heavy = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(361), height_cm=182.9)
+        heavy = Profile(sex="male", age_years=33, weight_kg=lb_to_kg(320), height_cm=182.9)
         gentle = evaluate_walk(heavy, [(2000.0, 5.0)])
         brutal = evaluate_walk(heavy, [(600.0, 90.0), (600.0, -90.0)])
         assert suitability(heavy, brutal)["score"] < suitability(heavy, gentle)["score"]
@@ -293,6 +293,6 @@ class TestSuitability:
 
 
 def test_unit_conversions():
-    assert lb_to_kg(361) == pytest.approx(163.75, abs=0.01)
+    assert lb_to_kg(320) == pytest.approx(145.15, abs=0.01)
     assert ft_in_to_cm(6, 0) == pytest.approx(182.88, abs=0.01)
     assert ft_in_to_cm(5, 10) == pytest.approx(177.8, abs=0.01)

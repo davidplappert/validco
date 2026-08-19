@@ -28,14 +28,14 @@ test("loads with the form ready and no results", async ({ page }) => {
 
 test("plans a walk and shows ranked suggestions", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("100 N Main St, Chillicothe, IL");
+  await page.getByLabel(/Start address/i).fill("100 N Main St, Morton, IL");
 
   const request = page.waitForRequest(`${API_HOST}/v1/plan`);
   await page.getByRole("button", { name: /find me a walk/i }).click();
 
   // The request must carry the profile the form collected.
   const payload = JSON.parse((await request).postData() ?? "{}");
-  expect(payload.address).toBe("100 N Main St, Chillicothe, IL");
+  expect(payload.address).toBe("100 N Main St, Morton, IL");
   expect(payload.profile.sex).toBe("male");
   expect(payload.minutes).toBe(30);
 
@@ -44,7 +44,7 @@ test("plans a walk and shows ranked suggestions", async ({ page }) => {
   await expect(list.getByRole("button")).toHaveCount(PLAN_RESPONSE.routes.length);
 
   // The origin summary echoes what the API derived.
-  await expect(page.getByText("708 North Main Street, 61523")).toBeVisible();
+  await expect(page.getByText("100 North MAIN Street, 61550")).toBeVisible();
   await expect(page.getByText(/BMI 49 \(obesity class III\)/)).toBeVisible();
   await expect(page.getByText(/Snapped 42 m to the walking network/)).toBeVisible();
 });

@@ -174,10 +174,10 @@ class TestAnthropometry:
 
 class TestUnitConverter:
     def test_round_trips(self):
-        assert UnitConverter.kg_to_lb(UnitConverter.lb_to_kg(361)) == pytest.approx(361)
+        assert UnitConverter.kg_to_lb(UnitConverter.lb_to_kg(320)) == pytest.approx(320)
 
     def test_known_values(self):
-        assert UnitConverter.lb_to_kg(361) == pytest.approx(163.75, abs=0.01)
+        assert UnitConverter.lb_to_kg(320) == pytest.approx(145.15, abs=0.01)
         assert UnitConverter.ft_in_to_cm(6, 0) == pytest.approx(182.88, abs=0.01)
         assert UnitConverter.m_to_miles(1609.344) == pytest.approx(1.0)
         assert UnitConverter.ms_to_mph(1.0) == pytest.approx(2.23694, abs=1e-4)

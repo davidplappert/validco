@@ -43,7 +43,7 @@ test("config.json carries a usable API URL", async ({ request }) => {
 
 test("plans a real walk end to end", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel(/Start address/i).fill("100 N Main St, Chillicothe, IL 61523");
+  await page.getByLabel(/Start address/i).fill("100 N Main St, Morton, IL 61550");
   await page.getByRole("button", { name: /find me a walk/i }).click();
 
   const list = page.getByLabel("Suggested walks");
@@ -52,7 +52,7 @@ test("plans a real walk end to end", async ({ page }) => {
 
   // The origin summary proves the geocoder resolved against the real Overture
   // address corpus rather than a fixture.
-  await expect(page.getByText(/Main Street/i)).toBeVisible();
+  await expect(page.getByText(/MAIN Street/i)).toBeVisible();
   await expect(page.getByText(/Snapped \d+ m to the walking network/)).toBeVisible();
 });
 

@@ -15,7 +15,7 @@ from stepwise.services.scoring import RouteScorer, ScoringWeights
 from stepwise.services.search import CostModel, GraphSearch, Preferences
 
 # A real address in the Peoria region, present in Overture.
-CHILLICOTHE = "100 N Main St, Chillicothe, IL 61523"
+ILLINOIS_ADDRESS = "100 N Main St, Morton, IL 61550"
 SF_NOB_HILL = "1000 California St, San Francisco"
 
 
@@ -82,20 +82,20 @@ class TestGraphSearch:
     def test_respects_its_time_budget(self, pia, lean_profile):
         """The property that keeps a 40-minute request a 40-minute walk."""
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         search = GraphSearch(graph, CostModel(graph, Preferences(), lean_profile))
         result = search.run(start, max_seconds=600.0)
         assert result.seconds and max(result.seconds.values()) <= 600.0 + 1e-6
 
     def test_a_larger_budget_reaches_further(self, pia, lean_profile):
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         search = GraphSearch(graph, CostModel(graph, Preferences(), lean_profile))
         assert len(search.run(start, 300.0).cost) < len(search.run(start, 900.0).cost)
 
     def test_trace_returns_legs_in_travel_order(self, pia, lean_profile):
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         search = GraphSearch(graph, CostModel(graph, Preferences(), lean_profile))
         result = search.run(start, 600.0)
 
@@ -111,7 +111,7 @@ class TestGraphSearch:
 
     def test_trace_of_an_unreached_node_is_empty(self, pia, lean_profile):
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         search = GraphSearch(graph, CostModel(graph, Preferences(), lean_profile))
         result = search.run(start, 60.0)
         unreached = next(n for n in range(graph.n_nodes) if n not in result.cost)
@@ -127,7 +127,7 @@ class TestGraphSearch:
         penalty working but makes for a vacuous test.)
         """
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         search = GraphSearch(graph, CostModel(graph, Preferences(), lean_profile))
 
         plain = search.run(start, 600.0)
@@ -166,14 +166,14 @@ class TestStreetNormalizer:
 class TestAddressParser:
     def test_directional_prefix_survives_the_house_number(self):
         """Regression: a greedy suffix match once ate the N from 100 N Main."""
-        parsed = AddressParser().parse("100 N Main St, Chillicothe, IL 61523")
-        assert parsed.number == 708
+        parsed = AddressParser().parse("100 N Main St, Morton, IL 61550")
+        assert parsed.number == 100
         assert parsed.street_norm == "north main street"
-        assert parsed.postcode == "61523"
+        assert parsed.postcode == "61550"
 
     def test_adjacent_letter_is_a_unit_suffix(self):
-        parsed = AddressParser().parse("708A Market St")
-        assert parsed.number == 708 and parsed.street_norm == "market street"
+        parsed = AddressParser().parse("450A Market St")
+        assert parsed.number == 450 and parsed.street_norm == "market street"
 
     def test_coordinates_are_recognised(self):
         coordinate = AddressParser().parse_latlon("37.7749, -122.4194")
@@ -188,9 +188,9 @@ class TestAddressParser:
 
 class TestGeocoder:
     def test_finds_a_real_address(self, pia):
-        result = Geocoder(pia.addresses).resolve(CHILLICOTHE)
+        result = Geocoder(pia.addresses).resolve(ILLINOIS_ADDRESS)
         assert result.found and result.match == "exact"
-        assert result.coordinate.lat == pytest.approx(40.6936, abs=0.01)
+        assert result.coordinate.lat == pytest.approx(40.6103, abs=0.01)
 
     def test_falls_back_to_the_nearest_house_number(self, pia):
         """Address corpora always have holes; 'not found' is the wrong answer."""
@@ -212,41 +212,41 @@ class TestGeocoder:
 
 
 @pytest.fixture(scope="module")
-def chillicothe_start(pia):
-    """The graph node nearest David's actual front door."""
-    return pia.graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+def morton_start(pia):
+    """The graph node nearest the Morton test address."""
+    return pia.graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
 
 
 class TestWalkPlanner:
-    def test_produces_candidates(self, pia, heavy_profile, chillicothe_start):
+    def test_produces_candidates(self, pia, heavy_profile, morton_start):
         planner = WalkPlanner(pia.graph, places=pia.places, green=pia.green)
-        routes = planner.plan(heavy_profile, chillicothe_start, 30.0, Preferences())
+        routes = planner.plan(heavy_profile, morton_start, 30.0, Preferences())
         assert routes
 
-    def test_every_candidate_returns_to_the_start(self, pia, heavy_profile, chillicothe_start):
+    def test_every_candidate_returns_to_the_start(self, pia, heavy_profile, morton_start):
         """A walk that does not come home is not a walk."""
         planner = WalkPlanner(pia.graph, places=pia.places)
-        for route in planner.plan(heavy_profile, chillicothe_start, 30.0, Preferences()):
-            assert route.nodes[0] == route.nodes[-1] == chillicothe_start
+        for route in planner.plan(heavy_profile, morton_start, 30.0, Preferences()):
+            assert route.nodes[0] == route.nodes[-1] == morton_start
             assert route.geometry.is_closed
 
-    def test_geometry_is_continuous(self, pia, heavy_profile, chillicothe_start):
+    def test_geometry_is_continuous(self, pia, heavy_profile, morton_start):
         """A jump between adjacent points means an edge was sliced wrongly."""
         planner = WalkPlanner(pia.graph, places=pia.places)
-        for route in planner.plan(heavy_profile, chillicothe_start, 30.0, Preferences()):
+        for route in planner.plan(heavy_profile, morton_start, 30.0, Preferences()):
             coordinates = route.geometry.coordinates
             for (lon1, lat1), (lon2, lat2) in zip(coordinates, coordinates[1:], strict=False):
                 assert abs(lon1 - lon2) < 0.01 and abs(lat1 - lat2) < 0.01
 
-    def test_surface_runs_cover_the_whole_route(self, pia, heavy_profile, chillicothe_start):
+    def test_surface_runs_cover_the_whole_route(self, pia, heavy_profile, morton_start):
         planner = WalkPlanner(pia.graph, places=pia.places)
-        route = planner.plan(heavy_profile, chillicothe_start, 30.0, Preferences())[0]
+        route = planner.plan(heavy_profile, morton_start, 30.0, Preferences())[0]
         assert route.geometry.segments
         assert sum(route.surfaces.percentages().values()) == pytest.approx(100.0, abs=0.5)
 
-    def test_durations_land_near_the_request(self, pia, heavy_profile, chillicothe_start):
+    def test_durations_land_near_the_request(self, pia, heavy_profile, morton_start):
         planner = WalkPlanner(pia.graph, places=pia.places)
-        for route in planner.plan(heavy_profile, chillicothe_start, 30.0, Preferences()):
+        for route in planner.plan(heavy_profile, morton_start, 30.0, Preferences()):
             assert 15 <= route.effort.duration_min <= 50
 
     def test_an_isolated_start_yields_nothing_rather_than_crashing(self, pia, heavy_profile):
@@ -258,7 +258,7 @@ class TestWalkPlanner:
 class TestRouteScorer:
     def test_prefers_the_requested_duration(self, pia, heavy_profile):
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         planner = WalkPlanner(graph, places=pia.places)
         routes = planner.plan(heavy_profile, start, 30.0, Preferences())
         assert routes
@@ -270,7 +270,7 @@ class TestRouteScorer:
 
     def test_a_wildly_wrong_duration_scores_far_lower(self, pia, heavy_profile):
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         routes = WalkPlanner(graph, places=pia.places).plan(
             heavy_profile, start, 30.0, Preferences()
         )
@@ -281,7 +281,7 @@ class TestRouteScorer:
 
     def test_diversify_drops_near_duplicates(self, pia, heavy_profile):
         graph = pia.graph
-        start = graph.nearest_node(Coordinate(40.6936, -89.5890))[0]
+        start = graph.nearest_node(Coordinate(40.61034, -89.46161))[0]
         routes = WalkPlanner(graph, places=pia.places).plan(
             heavy_profile, start, 30.0, Preferences(), max_routes=6
         )

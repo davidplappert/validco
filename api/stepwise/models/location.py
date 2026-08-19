@@ -138,7 +138,7 @@ class Origin:
 
     Both are reported. The snap distance is how the app admits that it put you
     on the nearest mapped path rather than on your doorstep — which in
-    Chillicothe can be 40 m away.
+    Morton can be 40 m away.
     """
 
     def __init__(

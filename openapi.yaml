@@ -41,7 +41,7 @@ info:
 
     ## Limits
 
-    Two regions are covered: San Francisco, CA and Peoria/Chillicothe, IL.
+    Two regions are covered: San Francisco, CA and Peoria/Morton, IL.
     Requests outside them return `422` naming the covered areas.
 
   contact:
@@ -131,7 +131,7 @@ paths:
                   type: string
                   maxLength: 120
                   description: A town or city name, optionally qualified by state.
-                  examples: ["Austin, TX", "Boulder, Colorado", "Chillicothe IL"]
+                  examples: ["Austin, TX", "Boulder, Colorado", "Morton IL"]
                 lat: { type: number, minimum: -90, maximum: 90 }
                 lon: { type: number, minimum: -180, maximum: 180 }
               anyOf:
@@ -178,7 +178,7 @@ paths:
         Accepts a street address, a street name on its own, or a literal
         `lat, lon` pair.
 
-        The matcher is deliberately forgiving. "100 N Main St" and "North
+        The matcher is deliberately forgiving. "100 N Main St" and "100 North
         Main Street" fold to the same key, and a house number missing from the
         corpus falls back to the nearest one on that street — placing you at 706
         when you typed 708 is a far better answer than "not found". The `match`
@@ -196,7 +196,7 @@ paths:
             minLength: 1
           examples:
             fullAddress:
-              value: 100 N Main St, Chillicothe, IL 61523
+              value: 100 N Main St, Morton, IL 61550
             abbreviated:
               value: 1000 California St, San Francisco
             streetOnly:
@@ -354,7 +354,7 @@ paths:
               byAddress:
                 summary: A 30-minute flat walk from a home address
                 value:
-                  address: 100 N Main St, Chillicothe, IL 61523
+                  address: 100 N Main St, Morton, IL 61550
                   minutes: 30
                   profile:
                     sex: male
@@ -436,7 +436,7 @@ components:
       type: string
       enum: [sf, pia]
       description: |
-        `sf` — San Francisco, CA. `pia` — Peoria & Chillicothe, IL.
+        `sf` — San Francisco, CA. `pia` — Peoria & Morton, IL.
 
     Error:
       type: object
@@ -634,7 +634,7 @@ components:
             number is absent from the corpus and the closest one was used.
         lat: { type: number }
         lon: { type: number }
-        label: { type: string, example: "708 North Main Street, 61523" }
+        label: { type: string, example: "100 North MAIN Street, 61550" }
         region: { $ref: "#/components/schemas/RegionKey" }
         address:
           type: object

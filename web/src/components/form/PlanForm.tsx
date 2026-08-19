@@ -77,7 +77,7 @@ export default function PlanForm({
         <TextInput
           value={address}
           onChange={(event) => setAddress(event.target.value)}
-          placeholder="100 N Main St, Chillicothe, IL"
+          placeholder="100 N Main St, Morton, IL"
           autoComplete="street-address"
           required
         />

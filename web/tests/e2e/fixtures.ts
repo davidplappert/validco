@@ -24,8 +24,8 @@ const REGIONS = {
     },
     {
       key: "pia",
-      label: "Peoria & Chillicothe, IL",
-      center: [40.6936, -89.5890],
+      label: "Peoria & Morton, IL",
+      center: [40.6103, -89.4616],
       bbox: [-89.8, 40.6, -89.3, 41.0],
       n_nodes: 62159,
       n_edges: 83935,
@@ -72,10 +72,10 @@ function buildRoute(id: number, overrides: Record<string, unknown> = {}) {
     streets: ["North Main Street", "Taylor Drive"],
     geometry: {
       type: "LineString",
-      coordinates: [[-89.5890, 40.6936], [-89.5031, 40.918], [-89.5890, 40.6936]],
+      coordinates: [[-89.4616, 40.6103], [-89.5031, 40.918], [-89.4616, 40.6103]],
       segments: [
-        { surface: "road", coordinates: [[-89.5890, 40.6936], [-89.5031, 40.918]] },
-        { surface: "sidewalk", coordinates: [[-89.5031, 40.918], [-89.5890, 40.6936]] },
+        { surface: "road", coordinates: [[-89.4616, 40.6103], [-89.5031, 40.918]] },
+        { surface: "sidewalk", coordinates: [[-89.5031, 40.918], [-89.4616, 40.6103]] },
       ],
     },
     elevation_profile: [{ m: 0, ele: 140.2 }, { m: 1000, ele: 144.1 }, { m: 2124, ele: 140.2 }],
@@ -86,8 +86,8 @@ function buildRoute(id: number, overrides: Record<string, unknown> = {}) {
 export const PLAN_RESPONSE = {
   region: "pia",
   origin: {
-    lat: 40.6936, lon: -89.5890, snapped_lat: 40.6936, snapped_lon: -89.5890,
-    snap_distance_m: 42, label: "708 North Main Street, 61523", match: "exact",
+    lat: 40.61034, lon: -89.46161, snapped_lat: 40.6104, snapped_lon: -89.4612,
+    snap_distance_m: 42, label: "100 North MAIN Street, 61550", match: "exact",
   },
   profile: {
     sex: "male", age_years: 33, weight_kg: 163.7, weight_lb: 320, height_cm: 182.9,

@@ -73,7 +73,7 @@ class TestRequestHardening:
         """The guard must not be near the size of a legitimate request."""
         realistic = json.dumps(
             {
-                "address": "100 N Main St, Chillicothe, IL 61523",
+                "address": "100 N Main St, Morton, IL 61550",
                 "minutes": 30,
                 "profile": {"sex": "male", "age": 33, "weight_lb": 320, "height_ft": 6},
                 "preferences": {"prefer_paths": True, "avoid_hills": True},
@@ -125,8 +125,8 @@ class TestLogRedaction:
         assert self._format(weight_kg=163.7)["weight_kg"] == "~175"
 
     def test_coordinates_are_coarsened(self):
-        payload = self._format(lat=40.6936, lon=-89.5890)
-        assert payload["lat"] == 40.9
+        payload = self._format(lat=40.610340, lon=-89.461611)
+        assert payload["lat"] == 40.6
         assert payload["lon"] == -89.5
 
     def test_non_personal_fields_pass_through(self):

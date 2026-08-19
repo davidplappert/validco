@@ -86,12 +86,12 @@ REGIONS: dict[str, Region] = {
         bbox=(-122.5300, 37.6900, -122.3400, 37.8400),
         center=(37.7749, -122.4194),
     ),
-    # Peoria / Chillicothe, IL: a small-city counterpoint with sparser sidewalk
+    # Peoria / Morton, IL: a small-city counterpoint with sparser sidewalk
     # coverage and gentler bluff terrain. Proves the pipeline is not tuned to
     # one atypical city.
     "pia": Region(
         key="pia",
-        label="Peoria & Chillicothe, IL",
+        label="Peoria & Morton, IL",
         bbox=(-89.8000, 40.6000, -89.3000, 41.0000),
         center=(40.6936, -89.5890),
     ),

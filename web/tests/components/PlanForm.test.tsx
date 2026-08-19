@@ -10,7 +10,7 @@ describe("PlanForm", () => {
 
     await userEvent.type(
       screen.getByLabelText(/Start address/i),
-      "100 N Main St, Chillicothe, IL",
+      "100 N Main St, Morton, IL",
     );
     await userEvent.selectOptions(screen.getByLabelText(/^Sex$/i), "male");
 
@@ -26,7 +26,7 @@ describe("PlanForm", () => {
 
     expect(onSubmit).toHaveBeenCalledOnce();
     expect(onSubmit.mock.calls[0][0]).toMatchObject({
-      address: "100 N Main St, Chillicothe, IL",
+      address: "100 N Main St, Morton, IL",
       minutes: 30,
       profile: { sex: "male", age: 33, weight_lb: 320 },
       preferences: { prefer_paths: true, avoid_busy_roads: true },

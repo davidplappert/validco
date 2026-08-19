@@ -228,9 +228,9 @@ jobs:
           # The real product path: a full plan request end to end.
           curl -fsS --max-time 30 -X POST "$API/v1/plan" \
             -H 'content-type: application/json' \
-            -d '{"address":"100 N Main St, Chillicothe, IL 61523",
+            -d '{"address":"100 N Main St, Morton, IL 61550",
                  "minutes":30,
-                 "profile":{"sex":"male","age":33,"weight_lb":320,"height_ft":6},
+                 "profile":{"sex":"male","age":45,"weight_lb":320,"height_ft":6},
                  "preferences":{"prefer_paths":true}}' > /tmp/plan.json
           jq -e '.routes | length >= 1' /tmp/plan.json > /dev/null
           echo "plan OK — $(jq -r '.routes | length' /tmp/plan.json) routes"

@@ -26,14 +26,14 @@ def sf(registry):
 
 @pytest.fixture(scope="session")
 def pia(registry):
-    """Peoria/Chillicothe datasets — sparse sidewalks, gentle bluffs."""
+    """Peoria/Morton datasets — sparse sidewalks, gentle bluffs."""
     return registry.datasets("pia")
 
 
 @pytest.fixture
 def heavy_profile() -> Profile:
     """A class III obesity profile — the user this product is built for."""
-    return Profile("male", 33, UnitConverter.lb_to_kg(361), 182.9)
+    return Profile("male", 33, UnitConverter.lb_to_kg(320), 182.9)
 
 
 @pytest.fixture

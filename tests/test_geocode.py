@@ -37,7 +37,7 @@ class TestNormalizeStreet:
         [
             ("N Main St", "north main street"),
             ("North Main Street", "north main street"),
-            ("n. main st", "north main street"),
+            ("n. main st.", "north main street"),
             ("Market St", "market street"),
             ("MARKET STREET", "market street"),
             ("W Sycamore St", "west sycamore street"),
@@ -52,7 +52,7 @@ class TestNormalizeStreet:
     def test_variants_agree(self):
         """The whole point: what Overture stores and what a user types must meet."""
         assert normalize_street("100 N Main St".split(" ", 1)[1]) == normalize_street(
-            "North Main Street"
+            "North MAIN Street"
         )
 
     def test_punctuation_and_case_are_irrelevant(self):
@@ -61,22 +61,22 @@ class TestNormalizeStreet:
 
 class TestParseAddress:
     def test_full_us_address(self):
-        p = parse_address("100 N Main St, Chillicothe, IL 61523")
-        assert p.number == 708
+        p = parse_address("100 N Main St, Morton, IL 61550")
+        assert p.number == 100
         assert p.street_norm == "north main street"
-        assert p.postcode == "61523"
+        assert p.postcode == "61550"
         assert p.state == "IL"
 
     def test_directional_prefix_survives_the_house_number(self):
         """Regression: a greedy suffix match once ate the "N" from "708 N
-        Main St" and searched for "Main Street", which does not exist."""
+        Main Street" and searched for "Main Street", which does not exist."""
         assert parse_address("100 N Main St").street_norm == "north main street"
         assert parse_address("100 S Main St").street_norm == "south main street"
         assert parse_address("55 E Oak Ave").street_norm == "east oak avenue"
 
     def test_adjacent_letter_is_a_unit_suffix(self):
-        p = parse_address("708A Market St")
-        assert p.number == 708
+        p = parse_address("450A Market St")
+        assert p.number == 450
         assert p.street_norm == "market street"
 
     def test_street_only(self):
@@ -85,7 +85,7 @@ class TestParseAddress:
         assert p.street_norm == "market street"
 
     def test_trailing_number_form(self):
-        assert parse_address("Main St 708").number == 708
+        assert parse_address("Main St 100").number == 100
 
     def test_locality_does_not_pollute_the_street(self):
         p = parse_address("1000 California St, San Francisco, CA 94108")
@@ -100,7 +100,7 @@ class TestParseAddress:
 class TestParseLatLon:
     def test_accepts_a_coordinate_pair(self):
         assert parse_latlon("37.7749, -122.4194") == (37.7749, -122.4194)
-        assert parse_latlon("40.6936 -89.5890") == (40.6936, -89.5890)
+        assert parse_latlon("40.6103 -89.4616") == (40.6103, -89.4616)
 
     def test_rejects_out_of_range_and_prose(self):
         assert parse_latlon("999, -122") is None

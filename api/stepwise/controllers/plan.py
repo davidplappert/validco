@@ -203,7 +203,7 @@ class StartPointResolver:
         """
         lowered = address.lower()
         for region in self.registry.regions.values():
-            # A label reads "San Francisco, CA" or "Peoria & Chillicothe, IL";
+            # A label reads "San Francisco, CA" or "Peoria & Morton, IL";
             # any of its place names appearing in the query is a strong signal.
             for part in region.label.replace("&", ",").split(","):
                 token = part.strip().lower()

@@ -7,7 +7,7 @@ dependency real rather than decorative.
 
 The hard part is not the lookup, it is that people do not type addresses the way
 datasets store them. Overture has "North Main Street"; a user types "708 N
-Main St, Chillicothe IL".
+Main Street, Morton IL".
 """
 
 from __future__ import annotations
@@ -150,7 +150,7 @@ class AddressParser:
             number = int(leading.group(1))
             head = head[leading.end() :].strip()
         else:
-            # Some places write "Main St 708"; tolerate that too.
+            # Some places write "Main St 100"; tolerate that too.
             trailing = self.TRAILING_NUMBER.search(head)
             if trailing:
                 number = int(trailing.group(1))
