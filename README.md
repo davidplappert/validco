@@ -12,8 +12,9 @@ on a footpath rather than in the roadway.
 <!-- deploy:urls:start -->
 | | |
 |---|---|
-| **Web app** | _(published by the deploy workflow — see [Deployment](#deployment))_ |
-| **API** | _(published by the deploy workflow)_ |
+| **Web app** | <https://d24au9260wn8or.cloudfront.net> |
+| **API** | <https://5f80eu0na4.execute-api.us-east-1.amazonaws.com/dev> |
+| **Health check** | <https://5f80eu0na4.execute-api.us-east-1.amazonaws.com/dev/v1/health> |
 | **API reference** | [`openapi.yaml`](openapi.yaml) — OpenAPI 3.1 |
 <!-- deploy:urls:end -->
 
