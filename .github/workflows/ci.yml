@@ -139,7 +139,7 @@ jobs:
         run: npm run format:check
 
   e2e:
-    timeout-minutes: 12
+    timeout-minutes: 20
     name: e2e (${{ matrix.name }})
     needs: frontend
     runs-on: ubuntu-latest
@@ -183,15 +183,28 @@ jobs:
       # Playwright's browser download is ~150 MB and unchanged between runs.
       # Caching it also lets the install skip apt entirely on a hit, which is
       # where the occasional multi-minute hang came from.
+      # Keyed on the Playwright version, NOT on the lockfile hash. The browser
+      # binaries depend on Playwright and nothing else, so keying on the whole
+      # lockfile meant any unrelated devDependency invalidated them — adding
+      # ESLint threw the cache away, all three matrix jobs fell back to
+      # `--with-deps`, and three concurrent apt runs blew the step timeout.
+      - name: Work out which Playwright to cache
+        id: playwright-version
+        working-directory: web
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Cache the Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
+      # apt is the slow, flaky part, and it only runs on a cache miss — but when
+      # it does run it has been known to sit on an unreachable mirror for
+      # minutes, so it gets room rather than failing the whole deploy.
       - name: Install the browser
-        timeout-minutes: 6
+        timeout-minutes: 10
         run: |
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
             npx playwright install chromium
