@@ -126,10 +126,13 @@ def build_profile(raw: dict) -> Profile:
     elif sex in ("f", "female", "woman"):
         sex = "female"
     else:
-        raise ApiError(400, "profile.sex must be 'male' or 'female'",
-                       note="The gait-speed and body-composition norms this model "
-                            "uses are only published split by binary sex; that is a "
-                            "limitation of the source literature, not a design choice.")
+        raise ApiError(
+            400,
+            "profile.sex must be 'male' or 'female'",
+            note="The gait-speed and body-composition norms this model "
+            "uses are only published split by binary sex; that is a "
+            "limitation of the source literature, not a design choice.",
+        )
 
     age = int(_number(raw.get("age"), "profile.age", 13, 110))
 
@@ -163,8 +166,11 @@ def _resolve_start(body: dict) -> tuple[float, float, str, dict]:
         lon = _number(body.get("lon"), "lon", -180, 180)
         key = region_key or graph_mod.region_for_point(lat, lon)
         if key is None:
-            raise ApiError(422, "those coordinates are outside every covered region",
-                           regions=[r["key"] for r in graph_mod.manifest()["regions"]])
+            raise ApiError(
+                422,
+                "those coordinates are outside every covered region",
+                regions=[r["key"] for r in graph_mod.manifest()["regions"]],
+            )
         return lat, lon, key, {"match": "coordinates", "label": f"{lat:.5f}, {lon:.5f}"}
 
     address = (body.get("address") or "").strip()
@@ -198,26 +204,34 @@ def _resolve_start(body: dict) -> tuple[float, float, str, dict]:
 
 
 def route_health(event: dict) -> dict:
-    loaded = {k: {"graph": v._graph is not None, "addresses": v._addresses is not None}
-              for k, v in graph_mod._REGIONS.items()}
-    return respond(200, {
-        "ok": True,
-        "service": "stepwise",
-        "version": os.environ.get("APP_VERSION", "dev"),
-        "cold_start": COLD_START,
-        "regions_registered": loaded,
-    })
+    loaded = {
+        k: {"graph": v._graph is not None, "addresses": v._addresses is not None}
+        for k, v in graph_mod._REGIONS.items()
+    }
+    return respond(
+        200,
+        {
+            "ok": True,
+            "service": "stepwise",
+            "version": os.environ.get("APP_VERSION", "dev"),
+            "cold_start": COLD_START,
+            "regions_registered": loaded,
+        },
+    )
 
 
 def route_regions(event: dict) -> dict:
     man = graph_mod.manifest()
-    return respond(200, {
-        "regions": man["regions"],
-        "default": man["default_region"],
-        "attribution": "Places, roads and addresses © Overture Maps Foundation, "
-                       "© OpenStreetMap contributors. Elevation from USGS 3DEP via "
-                       "AWS Terrain Tiles.",
-    })
+    return respond(
+        200,
+        {
+            "regions": man["regions"],
+            "default": man["default_region"],
+            "attribution": "Places, roads and addresses © Overture Maps Foundation, "
+            "© OpenStreetMap contributors. Elevation from USGS 3DEP via "
+            "AWS Terrain Tiles.",
+        },
+    )
 
 
 def route_geocode(event: dict) -> dict:
@@ -226,9 +240,11 @@ def route_geocode(event: dict) -> dict:
     if not query:
         raise ApiError(400, "q is required")
 
-    keys = [params["region"]] if params.get("region") else [
-        r["key"] for r in graph_mod.manifest()["regions"]
-    ]
+    keys = (
+        [params["region"]]
+        if params.get("region")
+        else [r["key"] for r in graph_mod.manifest()["regions"]]
+    )
     results = []
     for key in keys:
         try:
@@ -276,7 +292,9 @@ def route_plan(event: dict) -> dict:
         raise ApiError(
             422,
             "no walkable street or path within 600 m of that location",
-            lat=lat, lon=lon, region=region_key,
+            lat=lat,
+            lon=lon,
+            region=region_key,
         )
     start_node, snap_m = snapped
 
@@ -290,29 +308,35 @@ def route_plan(event: dict) -> dict:
             422,
             "could not build a walk from there — the network around that point is "
             "too sparse or disconnected",
-            lat=lat, lon=lon, region=region_key, snap_distance_m=round(snap_m),
+            lat=lat,
+            lon=lon,
+            region=region_key,
+            snap_distance_m=round(snap_m),
         )
 
     with Timer(LOG, "serialise", routes=len(routes)):
         payload = [_serialise_route(walk_graph, profile, r, i) for i, r in enumerate(routes)]
 
-    return respond(200, {
-        "region": region_key,
-        "origin": {
-            "lat": lat,
-            "lon": lon,
-            "snapped_lat": walk_graph.node_lat[start_node],
-            "snapped_lon": walk_graph.node_lon[start_node],
-            "snap_distance_m": round(snap_m),
-            **{k: v for k, v in origin.items() if k in ("label", "match", "address")},
+    return respond(
+        200,
+        {
+            "region": region_key,
+            "origin": {
+                "lat": lat,
+                "lon": lon,
+                "snapped_lat": walk_graph.node_lat[start_node],
+                "snapped_lon": walk_graph.node_lon[start_node],
+                "snap_distance_m": round(snap_m),
+                **{k: v for k, v in origin.items() if k in ("label", "match", "address")},
+            },
+            "profile": profile.describe(),
+            "request": {"minutes": minutes, "preferences": prefs.to_dict()},
+            "routes": payload,
+            "timing_ms": {"plan": round(plan_ms, 1)},
+            "attribution": "Overture Maps Foundation / OpenStreetMap contributors; "
+            "elevation USGS 3DEP via AWS Terrain Tiles.",
         },
-        "profile": profile.describe(),
-        "request": {"minutes": minutes, "preferences": prefs.to_dict()},
-        "routes": payload,
-        "timing_ms": {"plan": round(plan_ms, 1)},
-        "attribution": "Overture Maps Foundation / OpenStreetMap contributors; "
-                       "elevation USGS 3DEP via AWS Terrain Tiles.",
-    })
+    )
 
 
 def _serialise_route(walk_graph, profile: Profile, route, index: int) -> dict:
@@ -330,9 +354,7 @@ def _serialise_route(walk_graph, profile: Profile, route, index: int) -> dict:
         "health": health_effects(profile, route.effort),
         "suitability": route.suitability,
         "surface_breakdown_pct": route.surface_breakdown,
-        "surface_labels": {
-            walk_graph.surfaces[i]: label for i, label in SURFACE_LABELS.items()
-        },
+        "surface_labels": {walk_graph.surfaces[i]: label for i, label in SURFACE_LABELS.items()},
         "features": [label for bit, label in FLAG_LABELS.items() if flags & bit],
         "streets": route.streets[:25],
         "geometry": route_geojson(walk_graph, route),
@@ -408,21 +430,30 @@ def handler(event: dict, context: Any = None) -> dict:
     try:
         route_fn = ROUTES.get((method, path))
         if route_fn is None:
-            raise ApiError(404, f"no route for {method} {path}",
-                           available=[f"{m} {p}" for m, p in sorted(ROUTES)])
+            raise ApiError(
+                404,
+                f"no route for {method} {path}",
+                available=[f"{m} {p}" for m, p in sorted(ROUTES)],
+            )
         response = route_fn(event)
         status = response["statusCode"]
     except ApiError as exc:
-        LOG.warning("request rejected", extra={"status": exc.status, "reason": exc.message,
-                                               "detail": exc.detail})
-        response = respond(exc.status, {"error": exc.message, **exc.detail,
-                                        "request_id": request_id})
+        LOG.warning(
+            "request rejected",
+            extra={"status": exc.status, "reason": exc.message, "detail": exc.detail},
+        )
+        response = respond(
+            exc.status, {"error": exc.message, **exc.detail, "request_id": request_id}
+        )
         status = exc.status
     except Exception as exc:  # noqa: BLE001 - the last line of defence
         LOG.error(
             "unhandled exception",
-            extra={"error_type": type(exc).__name__, "error": str(exc),
-                   "traceback": traceback.format_exc()},
+            extra={
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            },
             exc_info=True,
         )
         response = respond(500, {"error": "internal error", "request_id": request_id})

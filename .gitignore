@@ -21,3 +21,8 @@ data/raw/
 .DS_Store
 .idea/
 .vscode/
+
+# Frontend build output (regenerated in CI before deploy)
+web/out/
+web/node_modules/
+web/.next/

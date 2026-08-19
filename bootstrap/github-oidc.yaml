@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  One-time bootstrap for the validco-dev account: a GitHub OIDC identity
+  provider and the single role GitHub Actions assumes to deploy this repository.
+  Deployed once by hand; after this, everything else reaches AWS through
+  GitHub Actions.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: davidplappert
+  GitHubRepo:
+    Type: String
+    Default: validco
+  DeployBranch:
+    Type: String
+    Default: main
+    Description: The only branch whose workflow runs may assume the deploy role.
+  CdkQualifier:
+    Type: String
+    Default: hnb659fds
+    Description: >
+      The CDK bootstrap qualifier. The deploy role is scoped to assume only the
+      CDK roles carrying this qualifier, so widening it requires an explicit
+      change here.
+
+Resources:
+  # GitHub's OIDC issuer. Using OIDC rather than a long-lived access key means
+  # there is no static AWS credential associated with this repository at all —
+  # nothing to leak from the public repo, and nothing to rotate.
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: project
+          Value: validco
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-actions-deploy
+      Description: Assumed by GitHub Actions on pushes to the deploy branch.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                # Without this the role would trust *any* GitHub repository's
+                # workflow, which is the classic OIDC misconfiguration.
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub >-
+                  repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${DeployBranch}
+      Policies:
+        - PolicyName: assume-cdk-roles
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # CDK v2 does its own privilege separation: the deploy, file
+              # publishing and lookup roles created by `cdk bootstrap` hold the
+              # actual permissions. This role therefore needs nothing except
+              # the ability to assume them, which keeps the repository's
+              # blast radius small and legible.
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-deploy-role-${AWS::AccountId}-${AWS::Region}
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-file-publishing-role-${AWS::AccountId}-${AWS::Region}
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-image-publishing-role-${AWS::AccountId}-${AWS::Region}
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-lookup-role-${AWS::AccountId}-${AWS::Region}
+        - PolicyName: read-stack-outputs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # So the workflow can print the site and API URLs in its summary
+              # and smoke-test the deployment.
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListStacks
+                Resource: "*"
+      Tags:
+        - Key: project
+          Value: validco
+
+Outputs:
+  DeployRoleArn:
+    Description: Set as the AWS_DEPLOY_ROLE_ARN repository variable in GitHub.
+    Value: !GetAtt GitHubDeployRole.Arn
+  OidcProviderArn:
+    Value: !Ref GitHubOidcProvider

@@ -34,9 +34,19 @@ from stepwise.config import (  # noqa: E402
 )
 
 __all__ = [
-    "DATASET_VERSION", "FLAG_BRIDGE", "FLAG_BUSY", "FLAG_INDOOR", "FLAG_STEPS",
-    "FLAG_TUNNEL", "FLAG_UNPAVED", "SURFACE_COST", "SURFACE_CROSSING",
-    "SURFACE_PATH", "SURFACE_ROAD", "SURFACE_SIDEWALK", "SURFACES",
+    "DATASET_VERSION",
+    "FLAG_BRIDGE",
+    "FLAG_BUSY",
+    "FLAG_INDOOR",
+    "FLAG_STEPS",
+    "FLAG_TUNNEL",
+    "FLAG_UNPAVED",
+    "SURFACE_COST",
+    "SURFACE_CROSSING",
+    "SURFACE_PATH",
+    "SURFACE_ROAD",
+    "SURFACE_SIDEWALK",
+    "SURFACES",
 ]
 
 LOG = logging.getLogger(__name__)
@@ -125,24 +135,51 @@ UNPAVED_SURFACES = {"dirt", "gravel", "ground", "unpaved", "grass", "sand", "woo
 # can explain *why* it picked a destination.
 DESTINATION_CATEGORIES = {
     "green": {
-        "park", "garden", "botanical_garden", "dog_park", "playground",
-        "state_park", "national_park", "nature_preserve", "forest",
+        "park",
+        "garden",
+        "botanical_garden",
+        "dog_park",
+        "playground",
+        "state_park",
+        "national_park",
+        "nature_preserve",
+        "forest",
     },
     "scenic": {
-        "beach", "landmark_and_historical_building", "monument", "scenic_spot",
-        "tourist_attraction", "pier", "lookout", "observation_deck", "plaza",
+        "beach",
+        "landmark_and_historical_building",
+        "monument",
+        "scenic_spot",
+        "tourist_attraction",
+        "pier",
+        "lookout",
+        "observation_deck",
+        "plaza",
     },
     "culture": {
-        "art_gallery", "museum", "library", "public_art", "history_museum",
-        "art_museum", "performing_arts",
+        "art_gallery",
+        "museum",
+        "library",
+        "public_art",
+        "history_museum",
+        "art_museum",
+        "performing_arts",
     },
     "refuel": {
-        "coffee_shop", "cafe", "bakery", "juice_bar_and_smoothies",
-        "ice_cream_shop", "tea_room",
+        "coffee_shop",
+        "cafe",
+        "bakery",
+        "juice_bar_and_smoothies",
+        "ice_cream_shop",
+        "tea_room",
     },
     "active": {
-        "gym", "sports_club_and_league", "recreation_center", "trail",
-        "stadium_arena", "swimming_pool",
+        "gym",
+        "sports_club_and_league",
+        "recreation_center",
+        "trail",
+        "stadium_arena",
+        "swimming_pool",
     },
 }
 
@@ -154,4 +191,3 @@ GREEN_LANDUSE_SUBTYPES = {"park", "recreation", "horticulture", "forest", "conse
 # count as "green-adjacent". Deliberately generous — city parks are large and
 # the point is "does this walk feel green", not a precise buffer.
 GREEN_PROXIMITY_M = 120.0
-

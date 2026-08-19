@@ -1,0 +1,75 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+/* The palette follows Valid's own demo: a very dark desaturated teal ground
+   with a violet accent, so this reads as a sibling of their reference app. */
+@theme {
+  --color-ground: #0a1d22;
+  --color-surface: #0f272d;
+  --color-surface-2: #143138;
+  --color-line: #1e424a;
+  --color-ink: #e8f1f2;
+  --color-ink-dim: #8ba7ad;
+  --color-accent: #a78bfa;
+  --color-accent-dim: #7c5cf0;
+  --color-path: #4ade80;
+  --color-sidewalk: #60a5fa;
+  --color-crossing: #fbbf24;
+  --color-road: #f87171;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-ground);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* MapLibre's default controls are light-on-light against a dark basemap. */
+.maplibregl-ctrl-group {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-line) !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--color-line) !important;
+}
+.maplibregl-ctrl-group button span {
+  filter: invert(1);
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(10, 29, 34, 0.85) !important;
+  color: var(--color-ink-dim) !important;
+  font-size: 10px;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--color-ink-dim) !important;
+}
+
+/* A range input that matches the rest of the panel in both engines. */
+input[type="range"] {
+  accent-color: var(--color-accent);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.28s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation: none;
+  }
+}

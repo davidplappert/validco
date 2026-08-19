@@ -153,7 +153,11 @@ class Timer:
             "done %s in %.1fms",
             self.label,
             self.duration_ms,
-            extra={"stage": self.label, "duration_ms": round(self.duration_ms, 1),
-                   "failed": exc is not None, **self.fields},
+            extra={
+                "stage": self.label,
+                "duration_ms": round(self.duration_ms, 1),
+                "failed": exc is not None,
+                **self.fields,
+            },
         )
         return False

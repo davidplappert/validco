@@ -72,8 +72,12 @@ class WalkGraph:
         self._geom_start: array | None = None
         self._geom_lat: array | None = None
         self._geom_lon: array | None = None
-        LOG.debug("WalkGraph ready region=%s nodes=%d edges=%d",
-                  self.meta.get("region"), self.n_nodes, self.n_edges)
+        LOG.debug(
+            "WalkGraph ready region=%s nodes=%d edges=%d",
+            self.meta.get("region"),
+            self.n_nodes,
+            self.n_edges,
+        )
 
     # --- geometry is decoded only when a route actually needs drawing -----
 
@@ -134,7 +138,9 @@ class WalkGraph:
             self._grid = self._build_grid()
         return self._grid
 
-    def nearest_node(self, lat: float, lon: float, max_m: float = 500.0) -> tuple[int, float] | None:
+    def nearest_node(
+        self, lat: float, lon: float, max_m: float = 500.0
+    ) -> tuple[int, float] | None:
         """The closest graph node to a point, with its distance in metres.
 
         Searches outward ring by ring so a dense downtown query stops after one
@@ -186,8 +192,7 @@ class AddressIndex:
         self.addr_lon = container.get("addr_lon")
         self.addr_street = container.get("addr_street")
         self.addr_post = container.get("addr_post")
-        LOG.debug("AddressIndex ready count=%d streets=%d",
-                  len(self.addr_num), len(self.ranges))
+        LOG.debug("AddressIndex ready count=%d streets=%d", len(self.addr_num), len(self.ranges))
 
     def lookup(self, street_norm: str, number: int) -> dict | None:
         """Exact or nearest house number on a known street.
@@ -227,7 +232,9 @@ class AddressIndex:
             return []
         exact = [s for s in self.ranges if s == street_norm]
         prefix = [s for s in self.ranges if s.startswith(street_norm) and s not in exact]
-        contains = [s for s in self.ranges if street_norm in s and s not in exact and s not in prefix]
+        contains = [
+            s for s in self.ranges if street_norm in s and s not in exact and s not in prefix
+        ]
         out = (exact + sorted(prefix) + sorted(contains))[:limit]
         return [self.display.get(s, s) for s in out]
 
@@ -335,8 +342,7 @@ def manifest(data_dir: Path = DATA_DIR) -> dict:
     global _MANIFEST
     if _MANIFEST is None:
         _MANIFEST = json.loads((data_dir / "manifest.json").read_text())
-        LOG.info("manifest loaded regions=%s",
-                 [r["key"] for r in _MANIFEST["regions"]])
+        LOG.info("manifest loaded regions=%s", [r["key"] for r in _MANIFEST["regions"]])
     return _MANIFEST
 
 

@@ -22,13 +22,34 @@ LOG = logging.getLogger(__name__)
 
 # Both directions of the usual USPS abbreviations, folded to the long form.
 _STREET_ABBREV = {
-    "st": "street", "str": "street", "ave": "avenue", "av": "avenue",
-    "blvd": "boulevard", "rd": "road", "dr": "drive", "ln": "lane",
-    "ct": "court", "pl": "place", "ter": "terrace", "terr": "terrace",
-    "pkwy": "parkway", "pky": "parkway", "hwy": "highway", "cir": "circle",
-    "sq": "square", "aly": "alley", "wy": "way", "expy": "expressway",
-    "n": "north", "s": "south", "e": "east", "w": "west",
-    "ne": "northeast", "nw": "northwest", "se": "southeast", "sw": "southwest",
+    "st": "street",
+    "str": "street",
+    "ave": "avenue",
+    "av": "avenue",
+    "blvd": "boulevard",
+    "rd": "road",
+    "dr": "drive",
+    "ln": "lane",
+    "ct": "court",
+    "pl": "place",
+    "ter": "terrace",
+    "terr": "terrace",
+    "pkwy": "parkway",
+    "pky": "parkway",
+    "hwy": "highway",
+    "cir": "circle",
+    "sq": "square",
+    "aly": "alley",
+    "wy": "way",
+    "expy": "expressway",
+    "n": "north",
+    "s": "south",
+    "e": "east",
+    "w": "west",
+    "ne": "northeast",
+    "nw": "northwest",
+    "se": "southeast",
+    "sw": "southwest",
 }
 
 # Tokens that carry no matching signal once the street is isolated.
@@ -40,9 +61,7 @@ _ZIP = re.compile(r"\b(\d{5})(?:-\d{4})?\b")
 # *adjacent* to the digits. Allowing a space here would swallow the directional
 # prefix of "100 N Main St" and search for "Main Street" instead.
 _LEADING_NUMBER = re.compile(r"^\s*(\d+)([A-Za-z]?)(?![A-Za-z0-9])")
-_LATLON = re.compile(
-    r"^\s*(-?\d{1,3}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$"
-)
+_LATLON = re.compile(r"^\s*(-?\d{1,3}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$")
 
 
 def normalize_street(name: str) -> str:
@@ -55,7 +74,12 @@ def normalize_street(name: str) -> str:
     Used by both the offline builder (to key the index) and the runtime (to look
     into it), so it must stay a pure function of its input.
     """
-    cleaned = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in name.lower())
+    lowered = name.lower()
+    # Apostrophes are *deleted* rather than turned into a space, so O'Farrell
+    # and OFarrell reach the same key. Every other separator becomes a space,
+    # so "St.Louis" still splits into two words.
+    lowered = lowered.replace("'", "").replace("\u2019", "")
+    cleaned = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in lowered)
     words = [_STREET_ABBREV.get(w, w) for w in cleaned.split() if w not in _NOISE]
     return " ".join(words)
 
@@ -65,8 +89,9 @@ class ParsedAddress:
 
     __slots__ = ("number", "street", "street_norm", "postcode", "state", "raw")
 
-    def __init__(self, raw: str, number: int | None, street: str,
-                 postcode: str | None, state: str | None):
+    def __init__(
+        self, raw: str, number: int | None, street: str, postcode: str | None, state: str | None
+    ):
         self.raw = raw
         self.number = number
         self.street = street
@@ -75,8 +100,10 @@ class ParsedAddress:
         self.state = state
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return (f"ParsedAddress(number={self.number}, street={self.street!r}, "
-                f"norm={self.street_norm!r}, postcode={self.postcode})")
+        return (
+            f"ParsedAddress(number={self.number}, street={self.street!r}, "
+            f"norm={self.street_norm!r}, postcode={self.postcode})"
+        )
 
 
 def parse_address(text: str) -> ParsedAddress:
@@ -105,7 +132,7 @@ def parse_address(text: str) -> ParsedAddress:
     nm = _LEADING_NUMBER.match(head)
     if nm:
         number = int(nm.group(1))
-        head = head[nm.end():].strip()
+        head = head[nm.end() :].strip()
     else:
         # Some places write "Main St 708"; tolerate a trailing number too.
         tail = re.search(r"\b(\d{1,6})\s*$", head)
@@ -162,8 +189,12 @@ def geocode(index, text: str) -> dict:
             label = f"{hit['number']} {hit['street']}"
             if hit["postcode"]:
                 label += f", {hit['postcode']}"
-            LOG.info("geocode hit street=%r number=%s exact=%s",
-                     parsed.street_norm, parsed.number, hit["exact"])
+            LOG.info(
+                "geocode hit street=%r number=%s exact=%s",
+                parsed.street_norm,
+                parsed.number,
+                hit["exact"],
+            )
             return {
                 "found": True,
                 "match": "exact" if hit["exact"] else "nearest_number",

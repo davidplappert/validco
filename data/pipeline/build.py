@@ -130,7 +130,9 @@ def walkable_on_foot(access_json: str | None) -> bool:
             continue  # applies to part of the segment only
         when = rule.get("when") or {}
         # A denial with no qualifiers at all bans everyone, walkers included.
-        if not any(when.get(k) for k in ("during", "heading", "using", "recognized", "mode", "vehicle")):
+        if not any(
+            when.get(k) for k in ("during", "heading", "using", "recognized", "mode", "vehicle")
+        ):
             return False
         modes = when.get("mode") or []
         if "foot" in modes or "pedestrian" in modes:
@@ -332,7 +334,9 @@ class GraphBuilder:
                 best = comp
         LOG.info(
             "connected components: kept %d of %d nodes (%.1f%%)",
-            len(best), len(self.node_lon), 100.0 * len(best) / max(1, len(self.node_lon)),
+            len(best),
+            len(self.node_lon),
+            100.0 * len(best) / max(1, len(self.node_lon)),
         )
         return best
 
@@ -459,7 +463,11 @@ def pack_graph(builder: GraphBuilder, sampler: TerrainSampler, region: Region, o
     size = writer.write(out)
     LOG.info(
         "packed graph region=%s nodes=%d edges=%d geom_pts=%d bytes=%d",
-        region.key, n_nodes, n_edges, len(geom_lat), size,
+        region.key,
+        n_nodes,
+        n_edges,
+        len(geom_lat),
+        size,
     )
     return {"n_nodes": n_nodes, "n_edges": n_edges, "bytes": size}
 
@@ -493,9 +501,17 @@ def pack_addresses(con: duckdb.DuckDBPyConnection, src: Path, region: Region, ou
         if not digits:
             continue
         numeric = int(digits[:9])
-        suffix = number[len(digits):].strip() if number.startswith(digits) else ""
+        suffix = number[len(digits) :].strip() if number.startswith(digits) else ""
         prepared.append(
-            (normalize_street(street), numeric, suffix, street, postcode or "", float(lon), float(lat))
+            (
+                normalize_street(street),
+                numeric,
+                suffix,
+                street,
+                postcode or "",
+                float(lon),
+                float(lat),
+            )
         )
     prepared.sort(key=lambda r: (r[0], r[1], r[2]))
 
@@ -562,16 +578,18 @@ def pack_addresses(con: duckdb.DuckDBPyConnection, src: Path, region: Region, ou
     size = writer.write(out)
     LOG.info(
         "packed addresses region=%s count=%d streets=%d normalised=%d bytes=%d",
-        region.key, len(addr_num), len(street_dict), len(street_ranges), size,
+        region.key,
+        len(addr_num),
+        len(street_dict),
+        len(street_ranges),
+        size,
     )
     return {"count": len(addr_num), "streets": len(street_dict), "bytes": size}
 
 
 def pack_places(con: duckdb.DuckDBPyConnection, src: Path, region: Region, out: Path) -> dict:
     """Bake walk destinations, grouped into the themes the API explains routes with."""
-    cat_to_group = {
-        cat: group for group, cats in DESTINATION_CATEGORIES.items() for cat in cats
-    }
+    cat_to_group = {cat: group for group, cats in DESTINATION_CATEGORIES.items() for cat in cats}
     wanted = ", ".join(f"'{c}'" for c in sorted(cat_to_group))
     rows = con.execute(
         f"""
@@ -588,7 +606,6 @@ def pack_places(con: duckdb.DuckDBPyConnection, src: Path, region: Region, out: 
     place_group = array("B")
     place_conf = array("f")
     names: list[str] = []
-    categories: list[str] = []
     cat_dict: list[str] = []
     cat_index: dict[str, int] = {}
     place_cat = array("H")
@@ -648,7 +665,11 @@ def pack_green(con: duckdb.DuckDBPyConnection, src: Path, region: Region, out: P
     writer.add("green_lat", "f", green_lat)
     writer.add("green_lon", "f", green_lon)
     writer.add("green_radius", "f", green_radius)
-    writer.meta = {"dataset_version": DATASET_VERSION, "region": region.key, "count": len(green_lat)}
+    writer.meta = {
+        "dataset_version": DATASET_VERSION,
+        "region": region.key,
+        "count": len(green_lat),
+    }
     size = writer.write(out)
     LOG.info("packed green region=%s count=%d bytes=%d", region.key, len(green_lat), size)
     return {"count": len(green_lat), "bytes": size}

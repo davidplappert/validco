@@ -1,0 +1,77 @@
+name: ci
+
+# Runs on pull requests and on any branch that is not main. Deliberately has no
+# AWS permissions: `cdk synth` needs no credentials when the account and region
+# are supplied as context, so a PR can be fully validated — including that the
+# CloudFormation template still builds — without handing a fork's workflow an
+# AWS identity.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint
+        run: uv run ruff check api data infra tests
+
+      - name: Format check
+        run: uv run ruff format --check api data infra tests
+
+      - name: Tests
+        run: uv run pytest -q --tb=short
+
+      - name: CDK synth
+        env:
+          CDK_DEFAULT_ACCOUNT: "000000000000"
+          CDK_DEFAULT_REGION: us-east-1
+        run: |
+          npm install -g aws-cdk@2
+          uv run cdk synth --quiet --context envName=dev
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      - name: Type check
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: web
+        run: npm run build

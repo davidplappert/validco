@@ -76,14 +76,17 @@ class TerrainSampler:
             LOG.warning("terrain tile http=%d z=%d x=%d y=%d", resp.status_code, self.zoom, x, y)
             return None
         path.write_bytes(resp.content)
-        LOG.debug("fetched terrain tile z=%d x=%d y=%d bytes=%d", self.zoom, x, y, len(resp.content))
+        LOG.debug(
+            "fetched terrain tile z=%d x=%d y=%d bytes=%d", self.zoom, x, y, len(resp.content)
+        )
         return resp.content
 
     @staticmethod
     def _decode(png_bytes: bytes) -> array:
         """Terrarium PNG -> row-major float32 elevations in metres."""
-        from PIL import Image  # imported lazily: build-time only dependency
         import io
+
+        from PIL import Image  # imported lazily: build-time only dependency
 
         with Image.open(io.BytesIO(png_bytes)) as img:
             rgb = img.convert("RGB")
@@ -109,7 +112,12 @@ class TerrainSampler:
         wanted = [(x, y) for x in xs for y in ys]
         LOG.info(
             "preloading terrain zoom=%d tiles=%d x=[%d..%d] y=[%d..%d]",
-            self.zoom, len(wanted), xs.start, xs.stop - 1, ys.start, ys.stop - 1,
+            self.zoom,
+            len(wanted),
+            xs.start,
+            xs.stop - 1,
+            ys.start,
+            ys.stop - 1,
         )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:

@@ -142,7 +142,11 @@ class ContainerWriter:
             raise ValueError(f"unsupported dtype {dtype!r}; known: {sorted(DTYPES)}")
         if any(name == existing for existing, _ in self._arrays):
             raise ValueError(f"duplicate array name {name!r}")
-        buf = values if isinstance(values, array) and values.typecode == dtype else array(dtype, values)
+        buf = (
+            values
+            if isinstance(values, array) and values.typecode == dtype
+            else array(dtype, values)
+        )
         self._arrays.append((name, buf))
         LOG.debug("staged array name=%s dtype=%s count=%d", name, dtype, len(buf))
 

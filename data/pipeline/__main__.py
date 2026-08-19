@@ -64,9 +64,15 @@ def build_region(region: Region, cache_dir: Path, out_dir: Path, force: bool) ->
             for record in batch:
                 builder.add_segment(dict(zip(columns, record, strict=True)))
                 seen += 1
-            LOG.debug("segments processed=%d nodes=%d edges=%d",
-                      seen, len(builder.node_lon), len(builder.edges))
-        LOG.info("segments=%d -> nodes=%d edges=%d", seen, len(builder.node_lon), len(builder.edges))
+            LOG.debug(
+                "segments processed=%d nodes=%d edges=%d",
+                seen,
+                len(builder.node_lon),
+                len(builder.edges),
+            )
+        LOG.info(
+            "segments=%d -> nodes=%d edges=%d", seen, len(builder.node_lon), len(builder.edges)
+        )
         for key, value in sorted(builder.stats.items()):
             LOG.info("  %-28s %d", key, value)
 
@@ -77,8 +83,12 @@ def build_region(region: Region, cache_dir: Path, out_dir: Path, force: bool) ->
             "region": region.key,
             "label": region.label,
             "graph": pack_graph(builder, sampler, region, out_dir / f"{region.key}.graph.spw"),
-            "addresses": pack_addresses(con, paths["addresses"], region, out_dir / f"{region.key}.addr.spw"),
-            "places": pack_places(con, paths["places"], region, out_dir / f"{region.key}.places.spw"),
+            "addresses": pack_addresses(
+                con, paths["addresses"], region, out_dir / f"{region.key}.addr.spw"
+            ),
+            "places": pack_places(
+                con, paths["places"], region, out_dir / f"{region.key}.places.spw"
+            ),
             "green": pack_green(con, paths["green"], region, out_dir / f"{region.key}.green.spw"),
         }
     finally:
@@ -92,8 +102,12 @@ def build_region(region: Region, cache_dir: Path, out_dir: Path, force: bool) ->
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m data.pipeline", description=__doc__)
     parser.add_argument("command", choices=("build", "extract", "regions"))
-    parser.add_argument("--region", action="append", choices=sorted(REGIONS),
-                        help="region key; repeatable. Default: all regions.")
+    parser.add_argument(
+        "--region",
+        action="append",
+        choices=sorted(REGIONS),
+        help="region key; repeatable. Default: all regions.",
+    )
     parser.add_argument("--force", action="store_true", help="refetch cached Overture extracts")
     parser.add_argument("--cache-dir", type=Path, default=CACHE_DIR)
     parser.add_argument("--out-dir", type=Path, default=ARTIFACT_DIR)
@@ -137,15 +151,16 @@ def main(argv: list[str] | None = None) -> int:
     }
     (args.out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
-    total = sum(
-        s[k]["bytes"] for s in summaries for k in ("graph", "addresses", "places", "green")
-    )
+    total = sum(s[k]["bytes"] for s in summaries for k in ("graph", "addresses", "places", "green"))
     LOG.info("build complete: %d region(s), %.1f MB of artifacts", len(summaries), total / 1e6)
     for s in summaries:
         LOG.info(
             "  %-5s nodes=%-7d edges=%-7d addr=%-7d places=%-6d",
-            s["region"], s["graph"]["n_nodes"], s["graph"]["n_edges"],
-            s["addresses"]["count"], s["places"]["count"],
+            s["region"],
+            s["graph"]["n_nodes"],
+            s["graph"]["n_edges"],
+            s["addresses"]["count"],
+            s["places"]["count"],
         )
     return 0
 

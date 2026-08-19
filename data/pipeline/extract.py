@@ -54,9 +54,7 @@ def _bbox_clause(region: Region, alias: str = "") -> str:
     """
     p = f"{alias}." if alias else ""
     w, s, e, n = region.bbox
-    return (
-        f"{p}bbox.xmin BETWEEN {w} AND {e} AND {p}bbox.ymin BETWEEN {s} AND {n}"
-    )
+    return f"{p}bbox.xmin BETWEEN {w} AND {e} AND {p}bbox.ymin BETWEEN {s} AND {n}"
 
 
 def extract_segments(con: duckdb.DuckDBPyConnection, region: Region, out: Path) -> int:
@@ -177,14 +175,18 @@ EXTRACTORS = {
 }
 
 
-def extract_all(region: Region, cache_dir: Path = CACHE_DIR, force: bool = False) -> dict[str, Path]:
+def extract_all(
+    region: Region, cache_dir: Path = CACHE_DIR, force: bool = False
+) -> dict[str, Path]:
     """Run every extractor for one region, skipping any whose parquet is cached."""
     cache_dir = cache_dir / region.key
     cache_dir.mkdir(parents=True, exist_ok=True)
     paths = {name: cache_dir / f"{name}.parquet" for name in EXTRACTORS}
     todo = {n: p for n, p in paths.items() if force or not p.exists()}
     if not todo:
-        LOG.info("region=%s all extracts cached in %s (use --force to refetch)", region.key, cache_dir)
+        LOG.info(
+            "region=%s all extracts cached in %s (use --force to refetch)", region.key, cache_dir
+        )
         return paths
 
     con = connect()

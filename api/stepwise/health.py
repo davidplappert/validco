@@ -89,9 +89,19 @@ DAILY_STEP_TARGET = 7000
 MET_MODERATE = 3.0
 MET_VIGOROUS = 6.0
 
-# Minetti et al. (2002), Table: Cw(i) in J/kg/m, i = gradient as rise/run.
-# Fitted R^2 = 0.999 over -0.45 <= i <= +0.45. This is *net* cost — it excludes
-# resting metabolism, which we add separately.
+# Minetti et al. (2002): Cw(i) in J/kg/m, i = gradient as rise/run, fitted with
+# R^2 = 0.999 over -0.45 <= i <= +0.45.
+#
+# Note this polynomial is the regression on *average* cost across the tested
+# speeds, not on the paper's "minimum Cw" series (the cost at each gradient's
+# speed-optimal point). The two differ: the polynomial gives 2.5 J/kg/m on the
+# level where minimum Cw is 1.64, and the polynomial bottoms out near -0.15
+# where the minimum-Cw series bottoms at -0.10. Average cost is the right
+# choice here — people walk at their comfortable pace, not at each hill's
+# energetically optimal one.
+#
+# It is a cost *net* of resting metabolism, which is added separately from
+# Mifflin-St Jeor.
 _MINETTI = (280.5, -58.7, -76.8, 51.9, 19.6, 2.5)
 MINETTI_GRADE_LIMIT = 0.45
 
@@ -106,12 +116,17 @@ def minetti_cost(grade: float) -> float:
     ``grade`` is rise over run: +0.10 is a 10% climb, -0.10 a 10% descent.
 
     The curve is not symmetric and not monotonic, which is exactly why it is
-    worth using. Cost bottoms out around a 10% *descent* (0.81 J/kg/m — cheaper
-    than walking on the flat, because gravity does some of the work) and climbs
-    steeply again on steeper descents as the legs have to absorb energy
-    eccentrically. A model that treats downhill as "free" or as a linear
-    negative — as the ACSM equation implicitly does — gets San Francisco badly
-    wrong in both directions.
+    worth using. Cost falls below the level-ground value on a gentle descent —
+    gravity does some of the work — reaching its minimum near a 15% descent,
+    then climbs steeply again on steeper descents as the legs have to absorb
+    energy eccentrically rather than generate it. Minetti measured a minimum
+    cost of 0.81 J/kg/m at a 10% descent against 1.64 on the level: descending
+    gently is genuinely about half the cost of walking on the flat.
+
+    The ACSM walking equation, by contrast, is only validated uphill; applied
+    to a negative grade its vertical term goes negative without bound, which in
+    San Francisco means predicting that the downhill half of a loop refunds the
+    calories of the uphill half.
     """
     i = max(-MINETTI_GRADE_LIMIT, min(MINETTI_GRADE_LIMIT, grade))
     a, b, c, d, e, f = _MINETTI
@@ -431,7 +446,12 @@ def evaluate_walk(
     )
     LOG.debug(
         "evaluate_walk edges=%d dist=%.0fm dur=%.0fs asc=%.0fm kcal=%.0f mets=%.1f",
-        len(steps), total_dist, total_time, ascent, kcal_gross, mets,
+        len(steps),
+        total_dist,
+        total_time,
+        ascent,
+        kcal_gross,
+        mets,
     )
     return effort
 
@@ -453,9 +473,7 @@ def health_effects(profile: Profile, effort: WalkEffort) -> dict:
             # WHO 2020: 150-300 min/week moderate aerobic activity, 18-64.
             "who_weekly_moderate_min": WHO_WEEKLY_MODERATE_MIN,
             "moderate_minutes": round(moderate_minutes, 1),
-            "pct_of_weekly_target": round(
-                100.0 * moderate_minutes / WHO_WEEKLY_MODERATE_MIN, 1
-            ),
+            "pct_of_weekly_target": round(100.0 * moderate_minutes / WHO_WEEKLY_MODERATE_MIN, 1),
             "met_minutes": round(met_minutes),
             "counts_as_moderate": effort.mets >= MET_MODERATE,
         },

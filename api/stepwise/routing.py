@@ -42,7 +42,7 @@ from .config import (
     SURFACE_COST,
     SURFACE_CROSSING,
 )
-from .graph import WalkGraph, haversine
+from .graph import WalkGraph
 from .health import (
     Profile,
     WalkEffort,
@@ -230,8 +230,13 @@ def dijkstra(
                 prev[nxt] = (node, edge, reverse)
                 heapq.heappush(heap, (nd, nxt))
 
-    LOG.debug("dijkstra source=%d settled=%d reached=%d budget_s=%.0f",
-              source, pops, len(dist), max_seconds)
+    LOG.debug(
+        "dijkstra source=%d settled=%d reached=%d budget_s=%.0f",
+        source,
+        pops,
+        len(dist),
+        max_seconds,
+    )
     return SearchResult(dist=dist, metres=metres, seconds=seconds, prev=prev, source=source)
 
 
@@ -287,7 +292,12 @@ class Planner:
         return nodes
 
     def build_route(
-        self, profile: Profile, start: int, legs: list[tuple[int, int]], anchor: dict | None, shape: str
+        self,
+        profile: Profile,
+        start: int,
+        legs: list[tuple[int, int]],
+        anchor: dict | None,
+        shape: str,
     ) -> Route | None:
         if not legs:
             return None
@@ -299,8 +309,9 @@ class Planner:
         streets: list[str] = []
         pause = 0.0
         # nodes has one more entry than legs — pair each leg with the node it
-        # leaves and the node it arrives at.
-        for (edge, reverse), u, v in zip(legs, nodes[:-1], nodes[1:], strict=True):
+        # leaves and the node it arrives at. The direction bit is not needed
+        # here: (u, v) already carries it, and the rise is derived from them.
+        for (edge, _reverse), u, v in zip(legs, nodes[:-1], nodes[1:], strict=True):
             length = g.edge_len[edge]
             rise = g.elevation(v) - g.elevation(u)
             steps.append((length, rise))
@@ -327,8 +338,9 @@ class Planner:
 
     # --- candidate generation --------------------------------------------
 
-    def _anchors(self, out: SearchResult, start_lat: float, start_lon: float,
-                 half_s: float, want: int) -> list[dict]:
+    def _anchors(
+        self, out: SearchResult, start_lat: float, start_lon: float, half_s: float, want: int
+    ) -> list[dict]:
         """Choose turnaround points: real destinations first, then spread.
 
         The bearing buckets are the important part. Without them every anchor
@@ -377,8 +389,12 @@ class Planner:
             anchors.append({"node": node, "place": place, "bearing_bucket": bucket})
             if len(anchors) >= want:
                 break
-        LOG.debug("anchors chosen=%d from reachable=%d places=%d",
-                  len(anchors), len(reachable), len(place_nodes))
+        LOG.debug(
+            "anchors chosen=%d from reachable=%d places=%d",
+            len(anchors),
+            len(reachable),
+            len(place_nodes),
+        )
         return anchors
 
     def plan(
@@ -400,7 +416,11 @@ class Planner:
         half_s = target_s * 0.5
         LOG.info(
             "plan start_node=%d target_min=%.0f target_s=%.0f half_s=%.0f prefs=%s",
-            start, target_minutes, target_s, half_s, prefs.to_dict(),
+            start,
+            target_minutes,
+            target_s,
+            half_s,
+            prefs.to_dict(),
         )
 
         outbound = dijkstra(g, start, cost, max_seconds=half_s)
@@ -427,14 +447,19 @@ class Planner:
             # not unboundedly so.
             spent_s = outbound.seconds.get(node, half_s)
             back = dijkstra(
-                g, node, cost,
+                g,
+                node,
+                cost,
                 max_seconds=max(60.0, (target_s - spent_s) * 1.4),
-                penalty_edges=used, target=start,
+                penalty_edges=used,
+                target=start,
             )
             back_legs = trace(back, start)
 
             if back_legs:
-                route = self.build_route(profile, start, out_legs + back_legs, anchor["place"], "loop")
+                route = self.build_route(
+                    profile, start, out_legs + back_legs, anchor["place"], "loop"
+                )
             else:
                 # No distinct return exists (a genuine dead end, or a peninsula).
                 # An out-and-back is still a perfectly good walk — say so.
@@ -488,8 +513,12 @@ class Planner:
 
         routes.sort(key=lambda r: -r.score)
         deduped = self._diversify(routes, max_routes)
-        LOG.info("ranked routes=%d returned=%d top_score=%.1f",
-                 len(routes), len(deduped), deduped[0].score if deduped else 0.0)
+        LOG.info(
+            "ranked routes=%d returned=%d top_score=%.1f",
+            len(routes),
+            len(deduped),
+            deduped[0].score if deduped else 0.0,
+        )
         return deduped
 
     def _is_green(self, route: Route) -> bool:

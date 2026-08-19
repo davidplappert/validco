@@ -1,0 +1,15 @@
+{
+  "app": "python3 infra/app.py",
+  "watch": {
+    "include": ["api/**", "infra/**"],
+    "exclude": ["**/__pycache__/**", "cdk.out/**", "web/node_modules/**"]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:validateSnapshotRemovalPolicy": true,
+    "@aws-cdk/aws-apigateway:disableCloudWatchRole": false,
+    "@aws-cdk/core:target-partitions": ["aws"]
+  }
+}

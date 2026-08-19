@@ -1,0 +1,197 @@
+name: deploy
+
+# The only path to AWS. Pushes to main deploy the dev environment; there is no
+# other environment and no way to deploy from a laptop, because the deploy role
+# trusts this repository's OIDC identity on this branch and nothing else.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".gitignore"
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: Lambda log level for this deployment
+        required: false
+        default: DEBUG
+        type: choice
+        options: [DEBUG, INFO, WARNING]
+
+# One deploy at a time. Cancelling in progress would risk leaving CloudFormation
+# mid-update, so newer pushes queue behind the running deploy instead.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required to fetch the OIDC token for AWS
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENV_NAME: dev
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint
+        run: uv run ruff check api data infra tests
+
+      - name: Unit tests
+        run: uv run pytest -q
+
+  deploy:
+    name: deploy dev
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+      url: ${{ steps.outputs.outputs.site_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Python dependencies
+        run: uv sync --group infra
+
+      - name: Install CDK CLI
+        run: npm install -g aws-cdk@2
+
+      # The frontend is a static export; CDK uploads web/out/ to the site
+      # bucket. It has to be built before synth so the asset hash is stable.
+      - name: Build frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+
+      - name: Verify identity
+        run: aws sts get-caller-identity
+
+      - name: CDK diff
+        continue-on-error: true # informational; a first deploy has nothing to diff against
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ vars.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          uv run cdk diff \
+            --context envName=$ENV_NAME \
+            --context appVersion=${{ github.sha }} \
+            --context logLevel=${{ inputs.log_level || 'DEBUG' }}
+
+      - name: CDK deploy
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ vars.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          uv run cdk deploy \
+            --require-approval never \
+            --context envName=$ENV_NAME \
+            --context appVersion=${{ github.sha }} \
+            --context logLevel=${{ inputs.log_level || 'DEBUG' }} \
+            --outputs-file cdk-outputs.json
+
+      - name: Read stack outputs
+        id: outputs
+        run: |
+          SITE=$(jq -r '."stepwise-dev".SiteUrl' cdk-outputs.json)
+          API=$(jq -r '."stepwise-dev".ApiUrl' cdk-outputs.json)
+          echo "site_url=$SITE" >> "$GITHUB_OUTPUT"
+          echo "api_url=$API" >> "$GITHUB_OUTPUT"
+
+      # A deploy that reports success while the API 500s is worse than a failed
+      # deploy, so the workflow exercises the real endpoints before going green.
+      - name: Smoke test
+        env:
+          API: ${{ steps.outputs.outputs.api_url }}
+          SITE: ${{ steps.outputs.outputs.site_url }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for the API to become reachable..."
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 15 "$API/v1/health" > /tmp/health.json; then break; fi
+            echo "  attempt $i failed, retrying"; sleep 6
+          done
+          jq -e '.ok == true' /tmp/health.json > /dev/null
+          echo "health OK"
+
+          curl -fsS --max-time 20 "$API/v1/regions" | jq -e '.regions | length >= 1' > /dev/null
+          echo "regions OK"
+
+          # The real product path: a full plan request end to end.
+          curl -fsS --max-time 30 -X POST "$API/v1/plan" \
+            -H 'content-type: application/json' \
+            -d '{"address":"100 N Main St, Chillicothe, IL 61523",
+                 "minutes":30,
+                 "profile":{"sex":"male","age":33,"weight_lb":320,"height_ft":6},
+                 "preferences":{"prefer_paths":true}}' > /tmp/plan.json
+          jq -e '.routes | length >= 1' /tmp/plan.json > /dev/null
+          echo "plan OK — $(jq -r '.routes | length' /tmp/plan.json) routes"
+
+          curl -fsS -o /dev/null -w 'site HTTP %{http_code}\n' --max-time 20 "$SITE/"
+
+      - name: Job summary
+        if: always()
+        env:
+          SITE: ${{ steps.outputs.outputs.site_url }}
+          API: ${{ steps.outputs.outputs.api_url }}
+        run: |
+          {
+            echo "## StepWise — dev deployed"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Web app | ${SITE:-n/a} |"
+            echo "| API | ${API:-n/a} |"
+            echo "| Health | ${API:-n/a}/v1/health |"
+            echo "| Commit | \`${GITHUB_SHA::8}\` |"
+            if [ -f /tmp/plan.json ]; then
+              echo ""
+              echo "### Smoke test — top route"
+              echo '```json'
+              jq '{distance_mi: .routes[0].effort.distance_mi,
+                   duration_min: .routes[0].effort.duration_min,
+                   kcal: .routes[0].effort.kcal_gross,
+                   steps: .routes[0].effort.steps,
+                   fit: .routes[0].suitability.score}' /tmp/plan.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
