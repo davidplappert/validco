@@ -9,7 +9,26 @@ bearing.
 from __future__ import annotations
 
 import pytest
-from stepwise.geocode import normalize_street, parse_address, parse_latlon
+from stepwise.services.geocoder import AddressParser, StreetNormalizer
+
+_NORMALIZER = StreetNormalizer()
+_PARSER = AddressParser()
+
+
+def normalize_street(name):
+    """Adapter keeping these tests readable."""
+    return _NORMALIZER.normalize(name)
+
+
+def parse_address(text):
+    """Adapter keeping these tests readable."""
+    return _PARSER.parse(text)
+
+
+def parse_latlon(text):
+    """Adapter keeping these tests readable."""
+    coord = _PARSER.parse_latlon(text)
+    return (coord.lat, coord.lon) if coord else None
 
 
 class TestNormalizeStreet:

@@ -16,6 +16,15 @@ Parameters:
     Type: String
     Default: main
     Description: The only branch whose workflow runs may assume the deploy role.
+  DeployEnvironment:
+    Type: String
+    Default: dev
+    Description: >
+      The GitHub Environment the deploy job declares. A job with an
+      `environment:` gets an OIDC subject of `...:environment:NAME` instead of
+      `...:ref:refs/heads/BRANCH`, so both forms have to be trusted. The branch
+      restriction for the environment form is enforced by the environment's own
+      deployment branch policy in GitHub.
   CdkQualifier:
     Type: String
     Default: hnb659fds
@@ -56,8 +65,12 @@ Resources:
                 # Without this the role would trust *any* GitHub repository's
                 # workflow, which is the classic OIDC misconfiguration.
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub >-
-                  repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${DeployBranch}
+                # A list here means "any of these", not "all of these". Two
+                # subjects are needed because the deploy job declares a GitHub
+                # Environment, which rewrites the subject claim.
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${DeployBranch}
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:environment:${DeployEnvironment}
       Policies:
         - PolicyName: assume-cdk-roles
           PolicyDocument:

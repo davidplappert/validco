@@ -54,7 +54,7 @@ from .elevation import TerrainSampler
 # never disagree about the layout.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "api"))
 from stepwise.container import ContainerWriter  # noqa: E402
-from stepwise.geocode import normalize_street  # noqa: E402
+from stepwise.services.geocoder import StreetNormalizer  # noqa: E402
 
 LOG = logging.getLogger(__name__)
 
@@ -673,3 +673,17 @@ def pack_green(con: duckdb.DuckDBPyConnection, src: Path, region: Region, out: P
     size = writer.write(out)
     LOG.info("packed green region=%s count=%d bytes=%d", region.key, len(green_lat), size)
     return {"count": len(green_lat), "bytes": size}
+
+
+#: The builder keys the address index with exactly the function the runtime uses
+#: to look into it. Sharing the instance is what guarantees they cannot drift.
+_NORMALIZER = StreetNormalizer()
+
+
+def normalize_street(name: str) -> str:
+    """Fold a street name to its canonical index key.
+
+    Thin delegate to :class:`stepwise.services.geocoder.StreetNormalizer` so the
+    build and the runtime cannot disagree about what a street is called.
+    """
+    return _NORMALIZER.normalize(name)

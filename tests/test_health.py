@@ -12,19 +12,54 @@ from __future__ import annotations
 import math
 
 import pytest
-from stepwise.health import (
-    MINETTI_GRADE_LIMIT,
-    Profile,
-    bmi_class,
-    evaluate_walk,
-    ft_in_to_cm,
-    health_effects,
-    intensity_band,
-    lb_to_kg,
-    minetti_cost,
-    suitability,
-    tobler_speed_factor,
-)
+from stepwise.models.effort import WalkEffort
+from stepwise.models.health import HealthReport
+from stepwise.models.profile import Profile
+from stepwise.models.suitability import SuitabilityAssessment
+from stepwise.physiology.anthropometry import BodyComposition, UnitConverter
+from stepwise.physiology.energy import MinettiCostModel
+from stepwise.physiology.speed import ToblerSpeedModel
+
+MINETTI = MinettiCostModel()
+MINETTI_GRADE_LIMIT = MINETTI.grade_limit
+TOBLER = ToblerSpeedModel()
+
+
+def minetti_cost(grade):
+    """Adapter keeping these validation tests readable."""
+    return MINETTI.cost_j_per_kg_m(grade)
+
+
+def tobler_speed_factor(grade):
+    """Adapter keeping these validation tests readable."""
+    return TOBLER.factor(grade)
+
+
+def evaluate_walk(profile, segments, **kw):
+    """Adapter keeping these validation tests readable."""
+    return WalkEffort.evaluate(profile, segments, **kw)
+
+
+def health_effects(profile, effort):
+    """Adapter keeping these validation tests readable."""
+    return HealthReport(profile, effort).to_dict()
+
+
+def suitability(profile, effort):
+    """Adapter keeping these validation tests readable."""
+    return SuitabilityAssessment(profile, effort).to_dict()
+
+
+bmi_class = BodyComposition.classify
+lb_to_kg = UnitConverter.lb_to_kg
+ft_in_to_cm = UnitConverter.ft_in_to_cm
+
+
+def intensity_band(mets):
+    """Intensity band for a MET value, mirroring WalkEffort.intensity."""
+    if mets >= 6.0:
+        return "vigorous"
+    return "moderate" if mets >= 3.0 else "light"
 
 
 class TestMinetti:
@@ -96,7 +131,7 @@ class TestProfile:
         p = Profile(sex="female", age_years=40, weight_kg=70)
         assert p.height_assumed is True
         assert p.height_cm == pytest.approx(161.3)
-        assert p.describe()["height_assumed"] is True
+        assert p.to_dict()["height_assumed"] is True
 
         q = Profile(sex="female", age_years=40, weight_kg=70, height_cm=170)
         assert q.height_assumed is False
