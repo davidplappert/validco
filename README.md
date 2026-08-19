@@ -206,7 +206,7 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 
 ## Testing
 
-**419 tests**, wired into CI on every push and pull request.
+**489 tests**, wired into CI on every push and pull request.
 
 | Suite | Count | What it covers |
 |---|---:|---|
@@ -222,8 +222,8 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 | `tests/test_openapi.py` | 8 | The spec matches the implementation |
 | `tests/test_security.py` | 20 | CSP, CORS, log redaction, IAM, input bounds |
 | `tests/test_performance.py` | 10 | Cold start, query latency, response size |
-| `web/tests/**` (Vitest) | 52 | Components, hooks, formatting, the API client |
-| `web/tests/e2e/**` (Playwright) | 48 | The real bundle, desktop and mobile, under the real CSP |
+| `web/tests/**` (Vitest) | 53 | Components, hooks, formatting, the API client |
+| `web/tests/e2e/**` (Playwright) | 102 | The real bundle at nine viewports, under the real CSP |
 
 A few of these are load-bearing in ways worth calling out:
 

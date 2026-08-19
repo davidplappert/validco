@@ -37,7 +37,7 @@ Assignment site: https://valid-takehome-demo-mauve.vercel.app (password `CUGVvq1
 | **Very OOP; heavy models, thin controllers** | see *Architecture* |
 | **Component-heavy frontend** | ~30 components, none over ~120 lines |
 | **Inline docs on every method** | maintain this — every method has a docstring |
-| **Thorough tests both sides, wired to CI/CD** | 419 tests |
+| **Thorough tests both sides, wired to CI/CD** | 489 tests |
 | **Secure: endpoints, data, IAM, pipelines** | see *Security* |
 | **No personal data in this public repo** | scrubbed; `tests/test_privacy.py` fails the build if it returns |
 | **Optimised page load and query times** | see *Performance* |
@@ -68,7 +68,7 @@ web/                   Next.js 15 static export + React 19 + Tailwind v4 + MapLi
   src/lib/             api.ts, types.ts, format.ts
   tests/               Vitest (components, hooks, lib) + Playwright (e2e)
 bootstrap/             One-time GitHub OIDC CloudFormation (already applied)
-tests/                 319 backend tests, all offline
+tests/                 334 backend tests, all offline
 openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```
 
@@ -77,7 +77,7 @@ openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```bash
 uv sync --all-groups                      # local env (Python 3.13)
 
-uv run pytest                             # 319 tests, ~3s, no network
+uv run pytest                             # 334 tests, ~3s, no network
 uv run ruff check api data infra tests
 uv run ruff format api data infra tests
 
@@ -132,6 +132,21 @@ overestimate at high BMI). Cross-checked against the Compendium of Physical
 Activities: a 2.5 mph flat walk gives 3.1 MET against a published 3.0.
 
 ### Subtleties already resolved — do not "fix" these back
+
+- **MapLibre's stylesheet sets `.maplibregl-map { position: relative }`**, and
+  unlayered CSS outranks Tailwind v4's layered utilities *regardless of source
+  order*. That silently overrode `absolute` on the map container, `inset-0`
+  stopped sizing it, and the map shipped as a zero-height strip while every
+  network request succeeded. `globals.css` imports MapLibre into a `maplibre`
+  layer declared before `utilities` — do not "simplify" that import.
+- **Numbered streets** are spelled out in Peoria's Overture data ("North SECOND
+  Street") and zero-padded in San Francisco's ("03RD ST"). `StreetNormalizer`
+  folds every form to a canonical numeric ordinal. Changing it means rebuilding
+  the address containers.
+- **Weight projections use Hall et al. (2011), not 3,500 kcal/lb**, for
+  anything past a month — the static rule roughly doubles real one-year loss.
+  They also use *net* calories. Both are load-bearing; `tests/test_health.py`
+  pins them.
 
 - The Minetti polynomial regresses **average** cost across speeds (2.5 J/kg/m
   level), not the paper's **minimum Cw** series (1.64 level). Its own minimum
@@ -280,12 +295,12 @@ accurate data, not a bug.
 
 ## Testing
 
-419 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
+489 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
 
-- 319 backend (physiology, models, health, services, http, api, infra, security,
+- 334 backend (physiology, models, health, services, http, api, infra, security,
   performance, container, geocode, openapi)
-- 52 Vitest (components, hooks, formatting, API client)
-- 50 Playwright on `chromium` + `mobile`, plus 42 more across seven
+- 53 Vitest (components, hooks, formatting, API client)
+- 102 Playwright on `chromium` + `mobile`, plus 42 more across seven
   viewport-named projects (`phone-small` 320x568 through `desktop-wide`
   2560x1440) which run `responsive.spec.ts` only. All against a local static
   export with the API stubbed.
