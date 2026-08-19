@@ -30,6 +30,7 @@ Assignment site: https://valid-takehome-demo-mauve.vercel.app (password `CUGVvq1
 | **100% serverless — no Docker, no k8s** | explicitly reaffirmed; do not add containers |
 | **Python everywhere, including CDK** | CDK app is Python; Lambda is pure-stdlib Python |
 | **CDK + GitHub Actions the only deploy path** | OIDC role trusts `main` on this repo only |
+| **NEVER deploy manually — CI/CD only** | hard rule; `cdk deploy` from a laptop is not allowed even to hotfix |
 | One environment (`dev`), deployed from `main` | one stack, `stepwise-dev` |
 | **Logging as DEBUG as possible** | see *Observability* |
 | X-Ray and CloudTrail enabled | both on; pinned by `tests/test_infra.py` |
@@ -267,6 +268,16 @@ Load-bearing properties, worth preserving:
   with nothing stubbed.
 
 ## Deployment
+
+**Never run `cdk deploy` by hand.** Not to hotfix, not to test, not "just this
+once" — push to `main` and let the workflow do it. A manual deploy skips the
+test gate, can deploy a dirty tree, and makes the deployed SHA a lie. (This was
+violated once, to push a CSP fix quickly; the fix was correct and the shortcut
+was not.)
+
+Every job carries a `timeout-minutes`, and the deploy concurrency group uses
+`cancel-in-progress: true`. Both exist because a hung end-to-end step once held
+the group for 57 minutes and queued every later push behind it.
 
 `main` → `.github/workflows/deploy.yml` → backend tests + frontend tests →
 OIDC into `github-actions-deploy` → `cdk diff` → `cdk deploy` → curl smoke test →

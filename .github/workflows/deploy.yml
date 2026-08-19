@@ -19,11 +19,16 @@ on:
         type: choice
         options: [DEBUG, INFO, WARNING]
 
-# One deploy at a time. Cancelling in progress would risk leaving CloudFormation
-# mid-update, so newer pushes queue behind the running deploy instead.
+# One deploy at a time. Superseded runs are cancelled rather than queued: with
+# per-job timeouts in place, a newer commit should win immediately instead of
+# waiting out an older deploy that is about to be replaced anyway.
+#
+# CloudFormation itself is safe here — cancelling the workflow does not abort an
+# in-flight stack update, and the next run's `cdk deploy` waits for the stack to
+# settle before starting.
 concurrency:
   group: deploy-dev
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   # `write` only so the deploy job can push the README's refreshed URLs back.
@@ -39,6 +44,10 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
+    # Every job is bounded. Without this a single hung step holds the deploy
+    # concurrency group indefinitely and every later push queues behind it —
+    # which is exactly what happened once, for 57 minutes.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
@@ -68,6 +77,7 @@ jobs:
   test-web:
     name: test web
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -89,12 +99,24 @@ jobs:
       - name: Install the browser
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests
+        timeout-minutes: 8
         run: npx playwright test --project=chromium
+
+      # Hand the built export to the deploy job rather than building it twice.
+      - name: Upload the static export
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-out
+          path: web/out
+          retention-days: 1
 
   deploy:
     name: deploy dev
     needs: [test, test-web]
     runs-on: ubuntu-latest
+    # CloudFront distribution updates are the long pole and legitimately take
+    # several minutes; 30 leaves headroom without allowing an indefinite hang.
+    timeout-minutes: 30
     environment:
       name: dev
       url: ${{ steps.outputs.outputs.site_url }}
@@ -123,13 +145,22 @@ jobs:
       - name: Install CDK CLI
         run: npm install -g aws-cdk@2
 
-      # The frontend is a static export; CDK uploads web/out/ to the site
-      # bucket. It has to be built before synth so the asset hash is stable.
-      - name: Build frontend
-        working-directory: web
-        run: |
-          npm ci
-          npm run build
+      # Reuse the export the test job already produced. Building it twice cost
+      # about ninety seconds and risked the two differing.
+      - name: Download the static export
+        uses: actions/download-artifact@v4
+        with:
+          name: web-out
+          path: web/out
+
+      # The builder Lambda's native wheels are ~80 MB and identical between
+      # runs unless the pinned versions change, so they are cached on the
+      # dependency list in bundle.py.
+      - name: Cache the builder dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: builder-deps-${{ hashFiles('infra/bundle.py') }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -142,6 +173,7 @@ jobs:
         run: aws sts get-caller-identity
 
       - name: CDK diff
+        timeout-minutes: 5
         continue-on-error: true # informational; a first deploy has nothing to diff against
         env:
           CDK_DEFAULT_ACCOUNT: ${{ vars.AWS_ACCOUNT_ID }}
@@ -153,6 +185,7 @@ jobs:
             --context logLevel=${{ inputs.log_level || 'DEBUG' }}
 
       - name: CDK deploy
+        timeout-minutes: 20
         env:
           CDK_DEFAULT_ACCOUNT: ${{ vars.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: ${{ vars.AWS_REGION }}
@@ -175,6 +208,7 @@ jobs:
       # A deploy that reports success while the API 500s is worse than a failed
       # deploy, so the workflow exercises the real endpoints before going green.
       - name: Smoke test
+        timeout-minutes: 5
         env:
           API: ${{ steps.outputs.outputs.api_url }}
           SITE: ${{ steps.outputs.outputs.site_url }}
@@ -207,6 +241,7 @@ jobs:
       # pointed at the real CloudFront distribution and the real API. This is
       # what proves the deployment works, not just that it succeeded.
       - name: End-to-end against the deployment
+        timeout-minutes: 8
         working-directory: web
         env:
           E2E_BASE_URL: ${{ steps.outputs.outputs.site_url }}
