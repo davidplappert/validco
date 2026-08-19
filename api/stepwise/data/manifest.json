@@ -1,0 +1,41 @@
+{
+  "regions": [
+    {
+      "key": "sf",
+      "label": "San Francisco, CA",
+      "center": [
+        37.7749,
+        -122.4194
+      ],
+      "bbox": [
+        -122.53,
+        37.69,
+        -122.34,
+        37.84
+      ],
+      "n_nodes": 82889,
+      "n_edges": 123055,
+      "n_addresses": 394704,
+      "n_places": 3959
+    },
+    {
+      "key": "pia",
+      "label": "Peoria & Chillicothe, IL",
+      "center": [
+        40.6936,
+        -89.5890
+      ],
+      "bbox": [
+        -89.8,
+        40.6,
+        -89.3,
+        41.0
+      ],
+      "n_nodes": 62159,
+      "n_edges": 83935,
+      "n_addresses": 114045,
+      "n_places": 648
+    }
+  ],
+  "default_region": "sf"
+}

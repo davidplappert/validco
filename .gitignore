@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# CDK
+cdk.out/
+.cdk.staging/
+
+# Data pipeline scratch (raw Overture pulls + DEM tiles are re-derivable)
+data/cache/
+data/raw/
+*.parquet
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

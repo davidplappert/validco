@@ -1,0 +1,33 @@
+[project]
+name = "validco-stepwise"
+version = "0.1.0"
+description = "StepWise — walking routes with elevation and health impact, built on Overture Maps open data"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+# Everything below is local/CI only. The Lambda package itself ships pure-stdlib
+# code plus the baked graph artifact, so there is nothing to install at runtime.
+infra = [
+    "aws-cdk-lib>=2.180.0",
+    "constructs>=10.3.0",
+]
+data = [
+    "duckdb>=1.1.0",
+    "requests>=2.32.0",
+]
+dev = [
+    "pytest>=8.3.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["api", "infra"]
