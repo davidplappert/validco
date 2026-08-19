@@ -20,7 +20,15 @@ export default function OriginSummary({
   planMs: number;
 }) {
   return (
-    <div className="rounded-lg border border-line bg-surface p-3 text-xs text-ink-dim">
+    <div
+      // Named so it can be addressed directly. The resolved address also
+      // appears in each route's "via ..." list and, since the address field
+      // became a combobox, in the suggestion dropdown — so an unscoped search
+      // for that text matches several elements at once.
+      role="group"
+      aria-label="Start point"
+      className="rounded-lg border border-line bg-surface p-3 text-xs text-ink-dim"
+    >
       <div className="text-ink">{origin.label ?? "Your start"}</div>
       <div className="mt-1">
         BMI {profile.bmi} ({profile.bmi_class}) · comfortable pace {profile.baseline_speed_mph} mph

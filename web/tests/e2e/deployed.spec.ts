@@ -58,11 +58,15 @@ test("plans a real walk end to end", async ({ page }) => {
   // The origin summary proves the geocoder resolved against the real Overture
   // address corpus rather than a fixture.
   //
-  // Matched as a whole line rather than a substring: the street name also
-  // appears in each route's "via ..." list, and a loose regex matches several
-  // elements at once, which Playwright treats as an error rather than a pass.
-  await expect(page.getByText(/^\d+ North MAIN Street, \d{5}$/i)).toBeVisible();
-  await expect(page.getByText(/Snapped \d+ m to the walking network/)).toBeVisible();
+  // Scoped to the summary itself, not the page. A whole-line regex used to be
+  // enough to separate it from each route's "via ..." list — then the address
+  // field became a combobox, and against the real API (unlike the stubbed
+  // suites, where the completion list is deliberately empty) the dropdown
+  // holds several *more* whole-line matches for the same street. Scoping is
+  // the fix that keeps working as the page grows; a cleverer regex is not.
+  const start = page.getByRole("group", { name: "Start point" });
+  await expect(start.getByText(/^\d+ North MAIN Street, \d{5}$/i)).toBeVisible();
+  await expect(start.getByText(/Snapped \d+ m to the walking network/)).toBeVisible();
 });
 
 test("plans a walk in San Francisco too", async ({ page }) => {

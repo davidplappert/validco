@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 // deployment's. Running them against E2E_BASE_URL would intercept the real API
 // and prove nothing; `deployed.spec.ts` covers that case instead.
 test.skip(Boolean(process.env.E2E_BASE_URL), "stubbed specs run against the local export only");
-import { PLAN_RESPONSE, stubApi } from "./fixtures";
+import { COLLIDING_SUGGESTIONS, PLAN_RESPONSE, stubApi, stubSuggest } from "./fixtures";
 import { openApp, planAfter, planFor, planPayload, submitButton } from "./support/form";
 
 /**
@@ -122,4 +122,29 @@ test("shows the data attribution", async ({ page }) => {
   await expect(footer).toContainText(/Overture Maps Foundation/);
   await expect(footer).toContainText(/OpenStreetMap/);
   await expect(footer).toContainText(/not medical advice/i);
+});
+
+test("names the resolved start point even when the dropdown repeats it", async ({ page }) => {
+  // The regression this exists for was invisible locally and only failed after
+  // deployment. The stubbed suites return an empty completion list, so the
+  // dropdown never opened and the origin's address was the only copy of that
+  // text on the page. Against the real API the dropdown fills with the same
+  // street, three or seven copies of it, and "find that text" stopped meaning
+  // "find the start point".
+  //
+  // Stubbing completions that collide with the origin reproduces the
+  // production DOM here, where it is cheap to catch.
+  await stubApi(page);
+  await stubSuggest(page, COLLIDING_SUGGESTIONS);
+  await openApp(page);
+  await planFor(page, "100 N Main St, Morton, IL 61550");
+
+  const address = /^\d+ North MAIN Street, \d{5}$/i;
+  const start = page.getByRole("group", { name: "Start point" });
+
+  // The point of the test: unscoped this text is ambiguous, and scoped it is
+  // exactly one element.
+  expect(await page.getByText(address).count()).toBeGreaterThan(1);
+  await expect(start.getByText(address)).toBeVisible();
+  expect(await start.getByText(address).count()).toBe(1);
 });

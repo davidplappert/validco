@@ -189,6 +189,38 @@ export const PLAN_RESPONSE = {
 };
 
 /**
+ * Completions that collide with the planned origin, on purpose.
+ *
+ * The stubbed suites default to an *empty* completion list, and that hid a real
+ * failure: against the live API the dropdown fills with the same street the
+ * plan resolved to, so the origin summary's text matched several elements at
+ * once and only the post-deploy check caught it. A stub that never returns
+ * anything cannot exercise the DOM production actually renders.
+ *
+ * These entries deliberately repeat the address in {@link planResponse}'s
+ * origin, so any assertion that means "the resolved start point" has to say so
+ * rather than relying on the text being unique on the page.
+ */
+export const COLLIDING_SUGGESTIONS = [
+  {
+    kind: "address",
+    label: "100 North MAIN Street, 61550",
+    value: "100 N Main St, Morton, IL 61550",
+    region: "pia",
+    lat: 40.6134,
+    lon: -89.4661,
+  },
+  {
+    kind: "address",
+    label: "102 North MAIN Street, 61550",
+    value: "102 N Main St, Morton, IL 61550",
+    region: "pia",
+    lat: 40.6136,
+    lon: -89.4662,
+  },
+];
+
+/**
  * A completion list for `GET /v1/suggest`, for the specs that want a dropdown.
  *
  * The last entry is a street rather than an address and carries no coordinates,
