@@ -21,8 +21,6 @@ export interface PlannerError {
   title?: string;
   /** The recovery step the server offered, if any. */
   action?: ErrorAction | null;
-  /** Areas the deployment already covers. */
-  covered?: string[];
 }
 
 export interface PlannerState {
@@ -85,7 +83,6 @@ export function usePlanner(options: PlannerOptions = {}): PlannerState {
           code: caught.code,
           title: caught.title,
           action: caught.action,
-          covered: caught.covered,
         });
       } else if (caught instanceof Error && /config\.json/.test(caught.message)) {
         // The runtime config is written into the site bucket by CDK. If it is
