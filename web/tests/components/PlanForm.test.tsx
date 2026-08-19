@@ -20,7 +20,7 @@ describe("PlanForm", () => {
 
     const weight = screen.getByLabelText(/Weight/i);
     await userEvent.clear(weight);
-    await userEvent.type(weight, "361");
+    await userEvent.type(weight, "320");
 
     await userEvent.click(screen.getByRole("button", { name: /find me a walk/i }));
 
