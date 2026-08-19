@@ -37,7 +37,7 @@ Assignment site: https://valid-takehome-demo-mauve.vercel.app (password `CUGVvq1
 | **Very OOP; heavy models, thin controllers** | see *Architecture* |
 | **Component-heavy frontend** | ~30 components, none over ~120 lines |
 | **Inline docs on every method** | maintain this — every method has a docstring |
-| **Thorough tests both sides, wired to CI/CD** | 489 tests |
+| **Thorough tests both sides, wired to CI/CD** | 582 tests |
 | **Secure: endpoints, data, IAM, pipelines** | see *Security* |
 | **No personal data in this public repo** | scrubbed; `tests/test_privacy.py` fails the build if it returns |
 | **Optimised page load and query times** | see *Performance* |
@@ -63,12 +63,12 @@ api/stepwise/          Lambda source. Pure standard library — no runtime deps.
 data/pipeline/         Offline build: Overture -> .spw. Never runs in Lambda.
 infra/                 Python CDK app (one stack)
 web/                   Next.js 15 static export + React 19 + Tailwind v4 + MapLibre GL
-  src/components/      layout/ form/ map/ results/ health/ chart/ feedback/
-  src/hooks/           useRegions, usePlanner
+  src/components/      layout/ form/ map/ results/ health/ chart/ feedback/ regions/
+  src/hooks/           useRegions, usePlanner, useRegionBuilder
   src/lib/             api.ts, types.ts, format.ts
   tests/               Vitest (components, hooks, lib) + Playwright (e2e)
 bootstrap/             One-time GitHub OIDC CloudFormation (already applied)
-tests/                 334 backend tests, all offline
+tests/                 388 backend tests, all offline
 openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```
 
@@ -77,13 +77,13 @@ openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```bash
 uv sync --all-groups                      # local env (Python 3.13)
 
-uv run pytest                             # 334 tests, ~3s, no network
+uv run pytest                             # 388 tests, ~7s, no network
 uv run ruff check api data infra tests
 uv run ruff format api data infra tests
 
 cd web && npm ci
-cd web && npm test                        # 52 Vitest tests
-cd web && npm run test:e2e                # 30 Playwright tests (needs `npm run build` first)
+cd web && npm test                        # 86 Vitest tests
+cd web && npm run test:e2e                # 108 Playwright tests (needs `npm run build` first)
 cd web && npm run test:all                # typecheck + unit + build + e2e
 cd web && npm run build                   # emits web/out/ for CDK to upload
 
@@ -314,8 +314,28 @@ frugality.
 | `sf` | San Francisco, CA | 82,889 | 123,055 | 394,704 |
 | `pia` | Peoria & Morton, IL | 62,159 | 83,935 | 114,045 |
 
-Adding a city is one entry in `data/pipeline/config.py:REGIONS` plus a rebuild.
-Nothing in the routing or health code is city-specific.
+Those two are **bundled** — shipped inside the deployment package. Every other
+city is **on demand**: typing an address outside a known region offers to build
+it, a builder Lambda extracts it from Overture into S3, and the client polls a
+progress bar until it is ready and the plan re-submits itself.
+
+- `datasets/catalog.py` is the registry *and* the artifact store, both in S3.
+  Concurrent requests for the same city are deduplicated by a conditional
+  `PutObject` (`IfNoneMatch="*"`), so two people asking for Austin at the same
+  second produce one build. A build that stops reporting progress for 20 minutes
+  is presumed dead and may be reclaimed — without that, one killed Lambda would
+  poison a city permanently.
+- Polling backs off (1s / 2s / 4s / 5s by elapsed time): ~40 requests over two
+  minutes rather than 120. Three *consecutive* failures are tolerated, because a
+  dropped poll should not discard a build the server is still running.
+- Requested areas are clamped (`MAX_AREA_SQ_DEG = 1.2`): nobody gets to ask for
+  a country and time out the builder.
+- **Autocomplete only consults regions already on local disk.** Reading
+  `.addresses` on an on-demand region downloads it from S3, and suggestions fire
+  per keystroke — see `RegionDatasets.is_local`.
+
+Adding a *bundled* city is one entry in `data/pipeline/config.py:REGIONS` plus a
+rebuild. Nothing in the routing or health code is city-specific.
 
 The primary test address — `100 N Main St, Morton, IL 61550` — is real,
 present in Overture, and used in the smoke test and the test suite. Morton
@@ -324,15 +344,15 @@ accurate data, not a bug.
 
 ## Testing
 
-489 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
+582 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
 
-- 334 backend (physiology, models, health, services, http, api, infra, security,
+- 388 backend (physiology, models, health, services, http, api, infra, security,
   performance, container, geocode, openapi)
-- 53 Vitest (components, hooks, formatting, API client)
-- 102 Playwright on `chromium` + `mobile`, plus 42 more across seven
-  viewport-named projects (`phone-small` 320x568 through `desktop-wide`
-  2560x1440) which run `responsive.spec.ts` only. All against a local static
-  export with the API stubbed.
+- 86 Vitest (components, hooks, formatting, API client)
+- 108 Playwright: 33 specs on each of `chromium` and `mobile`, plus 42 more
+  across seven viewport-named projects (`phone-small` 320x568 through
+  `desktop-wide` 2560x1440) which run `responsive.spec.ts` only. All against a
+  local static export with the API stubbed.
 
 Load-bearing properties, worth preserving:
 

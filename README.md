@@ -37,7 +37,7 @@ this body and forty minutes, where should I walk, and what will it do for me?*
 That inverts the usual routing problem. The destination is an **output**, not an
 input, and the route has to come back to where it started.
 
-### Two regions, deliberately
+### Two regions bundled, the rest on demand
 
 | Key | Area | Nodes | Edges | Addresses | Character |
 |---|---|---:|---:|---:|---|
@@ -50,7 +50,24 @@ most atypical city in America is not a pipeline. Routes in Morton come back
 close to 100% `road` — that is accurate data about a town with few mapped
 sidewalks, not a bug, and the app says so rather than pretending otherwise.
 
-Adding a city is one entry in `data/pipeline/config.py` plus a rebuild.
+Those two ship inside the deployment package. **Anywhere else works too**: type
+an address the app does not cover and it offers to build the area, a Lambda
+extracts it from Overture into S3 with a progress bar, and your plan re-submits
+itself when it is ready — about a minute for a mid-sized city, once, for
+everyone.
+
+The interesting constraint there is that two people asking for Austin in the
+same second must produce **one** build. S3 gained conditional writes in late
+2024, so a `PutObject` with `If-None-Match: *` is the lock; the loser of the
+race just watches the winner's progress, which is what they wanted to see
+anyway. That is also why there is no DynamoDB table — the only genuinely hard
+requirement was atomic claim, and S3 now does it.
+
+Builds that stop reporting progress for twenty minutes are reclaimable, or a
+single killed Lambda would poison a city permanently. Requested areas are
+clamped to 1.2 square degrees, so nobody can ask for a country.
+
+Adding a *bundled* city is one entry in `data/pipeline/config.py` plus a rebuild.
 
 ---
 
@@ -206,7 +223,7 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 
 ## Testing
 
-**489 tests**, wired into CI on every push and pull request.
+**582 tests**, wired into CI on every push and pull request.
 
 | Suite | Count | What it covers |
 |---|---:|---|
