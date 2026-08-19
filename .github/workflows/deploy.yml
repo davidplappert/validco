@@ -3,6 +3,13 @@ name: deploy
 # The only path to AWS. Pushes to main deploy the dev environment; there is no
 # other environment and no way to deploy from a laptop, because the deploy role
 # trusts this repository's OIDC identity on this branch and nothing else.
+#
+# The job graph is deliberately wide — everything that can run concurrently
+# does, so the critical path is build, verify, deploy, verify the deployment:
+#
+#   lint ─────────────┐
+#   test (x3 suites) ─┼─> deploy ─> verify
+#   web ─> web-e2e ───┘
 on:
   push:
     branches: [main]
@@ -20,64 +27,77 @@ on:
         options: [DEBUG, INFO, WARNING]
 
 # One deploy at a time. Superseded runs are cancelled rather than queued: with
-# per-job timeouts in place, a newer commit should win immediately instead of
+# per-job timeouts in place a newer commit should win immediately instead of
 # waiting out an older deploy that is about to be replaced anyway.
 #
-# CloudFormation itself is safe here — cancelling the workflow does not abort an
-# in-flight stack update, and the next run's `cdk deploy` waits for the stack to
-# settle before starting.
+# CloudFormation is safe here — cancelling the workflow does not abort an
+# in-flight stack update, and the next run's `cdk deploy` waits for the stack
+# to settle before starting.
 concurrency:
   group: deploy-dev
   cancel-in-progress: true
 
 permissions:
   # `write` only so the deploy job can push the README's refreshed URLs back.
-  # Nothing else in this workflow writes to the repository.
   contents: write
   id-token: write # required to fetch the OIDC token for AWS
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ENV_NAME: dev
+  STACK: stepwise-dev
 
 jobs:
-  test:
-    name: test
+  lint:
+    name: lint
     runs-on: ubuntu-latest
-    # Every job is bounded. Without this a single hung step holds the deploy
-    # concurrency group indefinitely and every later push queues behind it —
-    # which is exactly what happened once, for 57 minutes.
-    timeout-minutes: 10
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: pyproject.toml
+      - run: uv python install 3.13
+      - run: uv sync --all-groups
+      - run: uv run ruff check api data infra tests builder
+      - run: uv run ruff format --check api data infra tests builder
 
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install dependencies
-        run: uv sync --all-groups
-
-      - name: Lint
-        run: uv run ruff check api data infra tests builder
-
-      - name: Format check
-        run: uv run ruff format --check api data infra tests builder
-
-      # The whole backend suite, including the infrastructure assertions that
-      # pin X-Ray, CloudTrail and log retention.
-      - name: Backend tests
-        run: uv run pytest --tb=short
-
-  test-web:
-    name: test web
+  test:
+    name: test (${{ matrix.suite }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Split across runners so the slowest suite sets the pace rather than
+        # their sum, and so a failure names the layer that broke.
+        include:
+          - suite: unit
+            paths: >-
+              tests/test_physiology.py tests/test_models.py tests/test_health.py
+              tests/test_container.py tests/test_geocode.py tests/test_http.py
+          - suite: integration
+            paths: tests/test_services.py tests/test_api.py tests/test_performance.py
+          - suite: infra-security
+            paths: >-
+              tests/test_infra.py tests/test_security.py tests/test_openapi.py
+              tests/test_privacy.py
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - run: uv python install 3.13
+      - run: uv sync --all-groups
+      - name: Tests
+        run: uv run pytest ${{ matrix.paths }} --tb=short
+
+  web:
+    name: web build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: web
@@ -88,31 +108,59 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-
       - run: npm ci
       - name: Type check
         run: npm run typecheck
       - name: Unit and component tests
-        run: npm run test
-      - name: Build
+        run: npm test
+      - name: Build the static export
         run: npm run build
-      - name: Install the browser
-        run: npx playwright install --with-deps chromium
-      - name: End-to-end tests
-        timeout-minutes: 8
-        run: npx playwright test --project=chromium
-
-      # Hand the built export to the deploy job rather than building it twice.
-      - name: Upload the static export
-        uses: actions/upload-artifact@v4
+      # Built once and reused by the e2e and deploy jobs, so three runners
+      # never build the same bundle three times.
+      - uses: actions/upload-artifact@v4
         with:
           name: web-out
           path: web/out
           retention-days: 1
 
+  web-e2e:
+    name: web e2e (${{ matrix.project }})
+    needs: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, mobile]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-out
+          path: web/out
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: npx playwright test --project=${{ matrix.project }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: web/playwright-report
+          retention-days: 7
+
   deploy:
     name: deploy dev
-    needs: [test, test-web]
+    needs: [lint, test, web-e2e]
     runs-on: ubuntu-latest
     # CloudFront distribution updates are the long pole and legitimately take
     # several minutes; 30 leaves headroom without allowing an indefinite hang.
@@ -120,47 +168,34 @@ jobs:
     environment:
       name: dev
       url: ${{ steps.outputs.outputs.site_url }}
+    outputs:
+      site_url: ${{ steps.outputs.outputs.site_url }}
+      api_url: ${{ steps.outputs.outputs.api_url }}
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install Python dependencies
-        run: uv sync --group infra
-
+          cache-dependency-glob: pyproject.toml
+      - run: uv python install 3.13
+      - run: uv sync --group infra
       - name: Install CDK CLI
         run: npm install -g aws-cdk@2
 
-      # Reuse the export the test job already produced. Building it twice cost
+      # Reuse the export the web job already produced. Building it twice cost
       # about ninety seconds and risked the two differing.
-      - name: Download the static export
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: web-out
           path: web/out
 
       # The builder Lambda's native wheels are ~80 MB and identical between
-      # runs unless the pinned versions change, so they are cached on the
-      # dependency list in bundle.py.
-      - name: Cache the builder dependencies
+      # runs unless the pinned versions or the bundled sources change.
+      - name: Cache the builder bundle
         uses: actions/cache@v4
         with:
-          path: ~/.cache/uv
-          key: builder-deps-${{ hashFiles('infra/bundle.py') }}
+          path: cdk.out/builder-bundle
+          key: builder-${{ hashFiles('infra/bundle.py', 'builder/**', 'data/pipeline/**', 'api/stepwise/**') }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -172,8 +207,26 @@ jobs:
       - name: Verify identity
         run: aws sts get-caller-identity
 
+      # Configuration lives in SSM as SecureString and is resolved here, at
+      # deploy time, so the Lambda reads plain environment variables rather
+      # than calling SSM on every cold start. No parameters is the normal case:
+      # this application has no secrets.
+      - name: Resolve configuration from SSM
+        run: |
+          set -euo pipefail
+          json=$(aws ssm get-parameters-by-path \
+                   --path "/stepwise/${ENV_NAME}" --recursive --with-decryption \
+                   --query 'Parameters[].{name:Name,value:Value}' \
+                   --output json 2>/dev/null || echo '[]')
+          # Written to a file rather than a step output, so a value can never
+          # appear in the run log.
+          echo "$json" | jq -c '
+            map({ (.name | split("/") | last | ascii_upcase | gsub("-";"_")): .value })
+            | add // {}' > /tmp/parameters.json
+          echo "resolved $(jq 'length' /tmp/parameters.json) parameter(s) from SSM"
+
       - name: CDK diff
-        timeout-minutes: 5
+        timeout-minutes: 6
         continue-on-error: true # informational; a first deploy has nothing to diff against
         env:
           CDK_DEFAULT_ACCOUNT: ${{ vars.AWS_ACCOUNT_ID }}
@@ -182,7 +235,8 @@ jobs:
           uv run cdk diff \
             --context envName=$ENV_NAME \
             --context appVersion=${{ github.sha }} \
-            --context logLevel=${{ inputs.log_level || 'DEBUG' }}
+            --context logLevel=${{ inputs.log_level || 'DEBUG' }} \
+            --context parameters="$(cat /tmp/parameters.json)"
 
       - name: CDK deploy
         timeout-minutes: 20
@@ -195,18 +249,19 @@ jobs:
             --context envName=$ENV_NAME \
             --context appVersion=${{ github.sha }} \
             --context logLevel=${{ inputs.log_level || 'DEBUG' }} \
+            --context parameters="$(cat /tmp/parameters.json)" \
             --outputs-file cdk-outputs.json
 
       - name: Read stack outputs
         id: outputs
         run: |
-          SITE=$(jq -r '."stepwise-dev".SiteUrl' cdk-outputs.json)
-          API=$(jq -r '."stepwise-dev".ApiUrl' cdk-outputs.json)
+          SITE=$(jq -r --arg s "$STACK" '.[$s].SiteUrl' cdk-outputs.json)
+          API=$(jq -r --arg s "$STACK" '.[$s].ApiUrl' cdk-outputs.json)
           echo "site_url=$SITE" >> "$GITHUB_OUTPUT"
           echo "api_url=$API" >> "$GITHUB_OUTPUT"
 
       # A deploy that reports success while the API 500s is worse than a failed
-      # deploy, so the workflow exercises the real endpoints before going green.
+      # deploy, so the real endpoints are exercised before this goes green.
       - name: Smoke test
         timeout-minutes: 5
         env:
@@ -225,7 +280,6 @@ jobs:
           curl -fsS --max-time 20 "$API/v1/regions" | jq -e '.regions | length >= 1' > /dev/null
           echo "regions OK"
 
-          # The real product path: a full plan request end to end.
           curl -fsS --max-time 30 -X POST "$API/v1/plan" \
             -H 'content-type: application/json' \
             -d '{"address":"100 N Main St, Morton, IL 61550",
@@ -237,29 +291,9 @@ jobs:
 
           curl -fsS -o /dev/null -w 'site HTTP %{http_code}\n' --max-time 20 "$SITE/"
 
-      # The same end-to-end suite the CI job runs against a local export, now
-      # pointed at the real CloudFront distribution and the real API. This is
-      # what proves the deployment works, not just that it succeeded.
-      - name: End-to-end against the deployment
-        timeout-minutes: 8
-        working-directory: web
-        env:
-          E2E_BASE_URL: ${{ steps.outputs.outputs.site_url }}
-        run: |
-          npx playwright install --with-deps chromium
-          npx playwright test --project=chromium tests/e2e/deployed.spec.ts
-
-      - name: Upload the e2e report on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-deployed
-          path: web/playwright-report
-          retention-days: 7
-
       # Keep the README's live links accurate without anyone remembering to.
-      # The deploy trigger ignores "**/*.md", so this commit cannot start
-      # another deploy — but [skip ci] is added as a second belt.
+      # The deploy trigger ignores "**/*.md" so this cannot start another
+      # deploy; [skip ci] is a second belt.
       - name: Update the README with the deployed URLs
         if: success()
         env:
@@ -282,18 +316,14 @@ jobs:
               "<!-- deploy:urls:end -->",
           ])
           path = pathlib.Path("README.md")
-          text = path.read_text()
-          updated = re.sub(
+          path.write_text(re.sub(
               r"<!-- deploy:urls:start -->.*?<!-- deploy:urls:end -->",
-              block, text, flags=re.S,
-          )
-          path.write_text(updated)
-          print("changed" if updated != text else "unchanged")
+              block, path.read_text(), flags=re.S,
+          ))
           PY
 
           if git diff --quiet README.md; then
-            echo "README already current"
-            exit 0
+            echo "README already current"; exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -301,11 +331,50 @@ jobs:
           git commit -m "docs: refresh deployed URLs [skip ci]"
           git push origin HEAD:main
 
+  verify:
+    name: verify deployment
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # This job needs its own dependencies. `npx playwright test` cannot load a
+      # config that imports @playwright/test unless the package is installed,
+      # and omitting this once turned a healthy deploy into a red run.
+      - run: npm ci
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      # The un-stubbed suite: real CloudFront, real config.json, real API
+      # Gateway, real Lambda cold start. This is what proves the deployment
+      # works rather than merely that CloudFormation succeeded.
+      - name: End-to-end against the deployment
+        timeout-minutes: 8
+        env:
+          E2E_BASE_URL: ${{ needs.deploy.outputs.site_url }}
+        run: npx playwright test --project=chromium tests/e2e/deployed.spec.ts
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-deployed
+          path: web/playwright-report
+          retention-days: 7
+
       - name: Job summary
         if: always()
         env:
-          SITE: ${{ steps.outputs.outputs.site_url }}
-          API: ${{ steps.outputs.outputs.api_url }}
+          SITE: ${{ needs.deploy.outputs.site_url }}
+          API: ${{ needs.deploy.outputs.api_url }}
         run: |
           {
             echo "## StepWise — dev deployed"
@@ -316,15 +385,4 @@ jobs:
             echo "| API | ${API:-n/a} |"
             echo "| Health | ${API:-n/a}/v1/health |"
             echo "| Commit | \`${GITHUB_SHA::8}\` |"
-            if [ -f /tmp/plan.json ]; then
-              echo ""
-              echo "### Smoke test — top route"
-              echo '```json'
-              jq '{distance_mi: .routes[0].effort.distance_mi,
-                   duration_min: .routes[0].effort.duration_min,
-                   kcal: .routes[0].effort.kcal_gross,
-                   steps: .routes[0].effort.steps,
-                   fit: .routes[0].suitability.score}' /tmp/plan.json
-              echo '```'
-            fi
           } >> "$GITHUB_STEP_SUMMARY"
