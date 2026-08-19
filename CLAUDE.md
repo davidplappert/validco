@@ -82,6 +82,10 @@ uv run ruff check api data infra tests
 uv run ruff format api data infra tests
 
 cd web && npm ci
+cd web && npm run lint                    # ESLint 9 flat config (next/core-web-vitals + TS)
+cd web && npm run lint:fix
+cd web && npm run format:check            # Prettier, 100 columns
+cd web && npm run format                  # rewrites; currently touches 30 files
 cd web && npm test                        # 86 Vitest tests
 cd web && npm run test:e2e                # 108 Playwright tests (needs `npm run build` first)
 cd web && npm run test:all                # typecheck + unit + build + e2e
@@ -131,6 +135,13 @@ flat 3.5 mL/kg/min scales linearly with total mass and is documented to
 overestimate at high BMI). Cross-checked against the Compendium of Physical
 Activities: a 2.5 mph flat walk gives 3.1 MET against a published 3.0.
 
+**The form has no visible submit button.** It plans itself once input settles,
+and the waiting mechanism is deliberately three different numbers rather than
+one — `TYPING_DELAY_MS` 700 for free text, `ADJUSTING_DELAY_MS` 400 for numbers
+and sliders, `SUGGEST_DELAY_MS` 180 for autocomplete. The whole form is
+debounced as one snapshot so two field changes are one plan, while the *delay*
+still depends on which field moved. `useDebouncedValue.ts` argues the numbers.
+
 ### Subtleties already resolved — do not "fix" these back
 
 - **MapLibre's stylesheet sets `.maplibregl-map { position: relative }`**, and
@@ -168,6 +179,27 @@ Activities: a 2.5 mph flat walk gives 3.1 MET against a published 3.0.
 - The stubbed Playwright specs skip when `E2E_BASE_URL` is set. Running them
   against a deployment would intercept the very API they were meant to verify;
   `deployed.spec.ts` covers that case un-stubbed.
+- **A submit button still exists, `sr-only` until focused.** Deleting it broke
+  Enter everywhere: HTML performs implicit submission only when a form has a
+  submit button or exactly one field, and this one has nine. It is also the
+  only way an assistive-technology user can say "now" to a form that otherwise
+  submits on a timer. Do not remove it again.
+- **`usePlanner` gates every state write on a sequence counter.** Two plans are
+  routinely in flight once the form submits itself, and they do not land in
+  order — a 40-minute request against a dense city outlasts the 20-minute one
+  typed after it. Without the counter the stale response wins by arriving last.
+- **A failed plan deliberately does not clear the previous result.** Half-typed
+  addresses fail constantly while typing; blanking the map on each one makes the
+  app flicker between working and broken.
+- **The region is chosen by the locality in the query, not by the first geocode
+  hit.** Street names repeat between towns: probing in registry order planned
+  "100 W Third St, Kewanee, IL" in Peoria and said nothing about it.
+  `test_a_walk_is_planned_in_the_town_that_was_asked_for` uses a street that
+  exists in *both* regions, because one that does not cannot detect the bug.
+- **`userEvent` and Vitest fake timers deadlock.** Every interaction hangs until
+  the runner kills it, including a bare `click` on a component with no timers.
+  `PlanForm.test.tsx` therefore runs on the real clock and costs about a second
+  per test; that is the deliberate trade, not an oversight.
 - **MapLibre fetches raster tiles with `fetch()`, not `<img>`.** The tile host
   must therefore appear in **both** `img-src` and `connect-src`. Listing it only
   in `img-src` shipped a blank map to production with hundreds of console

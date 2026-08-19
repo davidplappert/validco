@@ -146,6 +146,31 @@ there is no database, no runtime S3 fetch and no cold-start download.
 
 ---
 
+## Using it
+
+There is no submit button. The form plans as you type, once your input settles
+— and "settles" is deliberately three different waits rather than one:
+
+| Input | Wait | Why |
+|---|---:|---|
+| Address, typed by hand | 700 ms | Every prefix of "908 N Second St" is not an address, and the request costs a geocode plus a Dijkstra over tens of thousands of nodes |
+| Age, weight, duration | 400 ms | Every prefix of "360" is a *valid* weight, so an early request is premature rather than wrong — and you are watching the number change under your hand |
+| Autocomplete keystroke | 180 ms | A prefix scan of an in-memory index; its whole job is to feel instantaneous |
+
+One constant for all three would be simultaneously too slow for the dropdown and
+too fast for the address. The form is debounced as a single snapshot, so
+changing your weight and then your age is one plan rather than two.
+
+The address field completes as you type, out of the same Overture corpus the
+geocoder uses — no third-party autocomplete, so it costs nothing per keystroke
+and your partial home address never leaves the deployment. Ranking uses the
+number of addresses on a street as a stand-in for prominence, which is what
+puts California Street above Calgary Street for "cal".
+
+A submit button does still exist, hidden until focused. HTML only submits on
+Enter when a form has one, and a form that acts on a timer otherwise leaves a
+screen-reader user no way to say "now".
+
 ## How it works
 
 ### The graph
