@@ -37,7 +37,7 @@ Assignment site: https://valid-takehome-demo-mauve.vercel.app (password `CUGVvq1
 | **Very OOP; heavy models, thin controllers** | see *Architecture* |
 | **Component-heavy frontend** | ~30 components, none over ~120 lines |
 | **Inline docs on every method** | maintain this — every method has a docstring |
-| **Thorough tests both sides, wired to CI/CD** | 698 tests |
+| **Thorough tests both sides, wired to CI/CD** | 705 tests |
 | **Secure: endpoints, data, IAM, pipelines** | see *Security* |
 | **No personal data in this public repo** | scrubbed; `tests/test_privacy.py` fails the build if it returns |
 | **Optimised page load and query times** | see *Performance* |
@@ -68,7 +68,7 @@ web/                   Next.js 15 static export + React 19 + Tailwind v4 + MapLi
   src/lib/             api.ts, types.ts, format.ts
   tests/               Vitest (components, hooks, lib) + Playwright (e2e)
 bootstrap/             One-time GitHub OIDC CloudFormation (already applied)
-tests/                 431 backend tests, all offline
+tests/                 436 backend tests, all offline
 openapi.yaml           OpenAPI 3.1, drift-tested against the router
 ```
 
@@ -87,7 +87,7 @@ cd web && npm run lint:fix
 cd web && npm run format:check            # Prettier, 100 columns
 cd web && npm run format                  # rewrites; currently touches 30 files
 cd web && npm test                        # 128 Vitest tests
-cd web && npm run test:e2e                # 139 Playwright tests (needs `npm run build` first)
+cd web && npm run test:e2e                # 141 Playwright tests (needs `npm run build` first)
 cd web && npm run test:all                # typecheck + unit + build + e2e
 cd web && npm run build                   # emits web/out/ for CDK to upload
 
@@ -409,12 +409,12 @@ accurate data, not a bug.
 
 ## Testing
 
-698 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
+705 tests. Backend `uv run pytest`; frontend `cd web && npm run test:all`.
 
-- 431 backend (physiology, models, health, services, http, api, infra, security,
+- 436 backend (physiology, models, health, services, http, api, infra, security,
   performance, container, geocode, openapi)
 - 128 Vitest (components, hooks, formatting, API client)
-- 139 Playwright: 45 specs on each of `chromium` and `mobile` (40 run, the five
+- 141 Playwright: 46 specs on each of `chromium` and `mobile` (41 run, the five
   `deployed.spec.ts` ones skipped locally), plus 49 across seven viewport-named
   projects (`phone-small` 320x568 through `desktop-wide` 2560x1440) which run
   `responsive.spec.ts` only. All against a local static export with the API
@@ -479,6 +479,19 @@ David retains break-glass admin via `OrganizationAccountAccessRole` from the
 management account (`aws sts get-caller-identity --profile validco-dev`). That is
 deliberate, not a gap.
 
+**The API's root path redirects to the app.** That base URL is the one most
+likely to be pasted somewhere by hand — a submission form, a ticket, a message
+— and it used to answer with a 404: well formed, listing every route, and still
+reading as "this is broken" to anyone who opened it in a browser. `SITE_URL` is
+injected at deploy from the same CloudFront domain as `CORS_ALLOW_ORIGIN`, and
+`tests/test_infra.py` fails if it stops being wired.
+
+The redirect is **302, never 301**. The target is a CloudFront domain that is
+regenerated whenever the distribution is replaced, and a permanent redirect
+would be cached by browsers indefinitely. The response still carries a JSON body
+naming the app, `/v1` and `/v1/health`, so `curl` without `-L` shows something
+useful rather than a blank page.
+
 The frontend cannot know the API URL at build time, so CDK writes `/config.json`
 into the site bucket from the real CloudFormation values and the app fetches it
 at runtime. That file is served with caching disabled; everything else is cached.
@@ -533,10 +546,21 @@ run them only when no agent is mid-edit, since they need a clean tree.
 
 ## Status
 
-Working end to end and deployed. Known gaps, none blocking:
+Working end to end and deployed; the live deployment matches `main`.
+
+Everything asked for is in: the form plans as you type with no submit button,
+the address field completes from Overture at no per-keystroke cost, any city
+can be built on demand with a progress bar, the git history is scrubbed, and
+the API's root redirects to the app.
+
+Known gaps, none blocking:
 
 - Elevation profile uses node-level samples; per-shape-point would be smoother.
 - `PlaceIndex.within` is a linear scan (fine at 4k places; would need an index at 100k).
 - Green-space proximity uses polygon centroids and an equivalent radius, not true geometry.
 - No caching layer in front of the API — every plan recomputes. Fine at this traffic.
 - Route scores can exceed 100 once bonuses stack; it is a ranking score, not a percentage.
+- Built regions are never evicted. S3 lifecycle would do it; nothing prunes today.
+- The privacy suite now takes ~9s rather than ~1s, since it hashes every
+  substring of every letter run. Deliberate — it is what catches a name written
+  inside a regex — but it is the slowest thing in the backend suite.

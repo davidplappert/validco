@@ -18,6 +18,12 @@ on a footpath rather than in the roadway.
 | **API reference** | [`openapi.yaml`](openapi.yaml) — OpenAPI 3.1 |
 <!-- deploy:urls:end -->
 
+Either link lands you in the same place: **the API's root path redirects to the
+web app**. That base URL is the one people paste by hand, and answering it with
+a 404 — however well formed — reads as a broken service. Anything that does not
+follow redirects still gets a JSON document naming the app, `/v1` and
+`/v1/health`, rather than a blank page.
+
 Built as a take-home for [Valid](https://www.valid.co). The brief was one line:
 *"Overture Maps publishes free, open map data. Build a web app product on top of
 this data. Anything you want."*
@@ -248,7 +254,7 @@ assumed rather than supplied. None of it is medical advice, and it says so.
 
 ## Testing
 
-**698 tests**, wired into CI on every push and pull request.
+**705 tests**, wired into CI on every push and pull request.
 
 | Suite | Count | What it covers |
 |---|---:|---|
@@ -297,6 +303,36 @@ cd web && npm run test:all        # typecheck, unit, build, e2e
 ```
 
 ---
+
+## Privacy
+
+This repository is public, and it was seeded during development with a real
+home address, the coordinates on it, and a real body weight. All of it is gone
+from the working tree *and* from the git history, and `tests/test_privacy.py`
+fails the build if any of it returns.
+
+The guard is worth a paragraph, because the obvious implementation of one is
+self-defeating. A list of regexes containing the street name **is** the leak it
+exists to prevent: it publishes, in plain text, in the most conspicuous file on
+the subject, exactly the string being protected. So the terms are stored as
+SHA-256 digests. The scanner hashes candidates from each line and compares —
+you can read the file and learn that a residential street name is forbidden
+without learning which one.
+
+It hashes **every substring** of every letter run, not whole tokens, and that
+detail was paid for twice. Both the history scrub and the first version of this
+scanner relied on word boundaries, and both missed the same thing: written
+inside a regex, immediately after a `\b` escape, the escape's letter and the
+name form a single run with no boundary between them. Any scheme that depends
+on where a name starts and stops fails that way, so this one does not depend on
+it. Coordinates are truncated to three decimal places before hashing — about a
+hundred metres, where a coordinate stops describing an area and starts
+describing a building.
+
+Hashing introduces a failure mode a regex list does not have: a wrong digest or
+a tokenizer that never emits the hashed shape yields a scanner that passes
+everything, forever, silently. Two tests exist purely to prove the detectors
+still fire.
 
 ## Security
 
