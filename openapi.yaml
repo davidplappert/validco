@@ -77,6 +77,55 @@ tags:
     description: The product — turning a person and a time budget into walks.
 
 paths:
+  /:
+    get:
+      tags: [system]
+      operationId: getRoot
+      summary: Redirect to the browser app
+      description: |
+        The API's base URL is the address most likely to be pasted somewhere by
+        hand, and it used to answer with a 404 — well formed, listing every
+        route, and still reading as "this is broken" to anyone who opened it.
+
+        A browser is redirected to the app. Anything that does not follow
+        redirects still receives a JSON document naming the app and the API
+        root, so `curl` without `-L` shows something useful rather than a blank
+        page.
+
+        The redirect is temporary (302) on purpose: the target is a CloudFront
+        domain that is regenerated whenever the distribution is replaced, and a
+        301 would be cached by browsers indefinitely.
+      responses:
+        "302":
+          description: The browser app's location.
+          headers:
+            Location:
+              description: Absolute URL of the browser app.
+              schema: { type: string, format: uri }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service: { type: string, example: stepwise }
+                  app: { type: string, format: uri }
+                  api: { type: string, example: /v1 }
+                  health: { type: string, example: /v1/health }
+                  message: { type: string }
+        "200":
+          description: |
+            No browser app is configured for this deployment — local
+            development, typically. Describes the API instead of redirecting.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service: { type: string }
+                  api: { type: string }
+                  health: { type: string }
+                  message: { type: string }
+
   /v1/health:
     get:
       tags: [system]

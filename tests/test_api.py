@@ -309,3 +309,57 @@ class TestRegionSelection:
             )
             assert status == 200, f"{locality} -> {body}"
             assert body["region"] == expected, f"{locality} planned in {body['region']}"
+
+
+class TestRoot:
+    """``GET /`` — the URL most likely to be pasted somewhere by hand.
+
+    It used to return a well-formed 404 listing the available routes, which is
+    correct and still reads as "this is broken" to anyone opening it in a
+    browser. That is the wrong first impression for the one address a reviewer
+    is most likely to try.
+    """
+
+    def test_redirects_to_the_app_when_a_site_is_configured(self, monkeypatch):
+        """A browser lands on the product rather than an error."""
+        monkeypatch.setenv("SITE_URL", "https://example.cloudfront.net")
+        status, body = call("GET", "/")
+        assert status == 302
+        assert body["app"] == "https://example.cloudfront.net"
+
+    def test_the_redirect_carries_a_location_header(self, monkeypatch):
+        """The header is what actually moves a browser; the body is for tools."""
+        monkeypatch.setenv("SITE_URL", "https://example.cloudfront.net")
+        event = {
+            "rawPath": "/",
+            "requestContext": {"http": {"method": "GET", "path": "/"}},
+        }
+        response = handler(event, None)
+        assert response["statusCode"] == 302
+        assert response["headers"]["Location"] == "https://example.cloudfront.net"
+        # A permanent redirect would be cached by browsers indefinitely, and the
+        # CloudFront domain is regenerated whenever the distribution is
+        # replaced — so this must stay temporary.
+        assert response["statusCode"] != 301
+
+    def test_falls_back_to_the_cors_origin(self, monkeypatch):
+        """One value configures both, so a missing SITE_URL is still usable."""
+        monkeypatch.delenv("SITE_URL", raising=False)
+        monkeypatch.setenv("CORS_ALLOW_ORIGIN", "https://fallback.cloudfront.net")
+        status, body = call("GET", "/")
+        assert status == 302
+        assert body["app"] == "https://fallback.cloudfront.net"
+
+    def test_explains_itself_when_there_is_no_app_to_point_at(self, monkeypatch):
+        """Local development has no site; say so rather than redirect nowhere."""
+        monkeypatch.delenv("SITE_URL", raising=False)
+        monkeypatch.setenv("CORS_ALLOW_ORIGIN", "*")
+        status, body = call("GET", "/")
+        assert status == 200
+        assert body["health"] == "/v1/health"
+
+    def test_a_redirect_still_says_where_the_api_is(self, monkeypatch):
+        """`curl` without -L shows a document, not a blank page."""
+        monkeypatch.setenv("SITE_URL", "https://example.cloudfront.net")
+        _, body = call("GET", "/")
+        assert body["api"] == "/v1" and body["health"] == "/v1/health"

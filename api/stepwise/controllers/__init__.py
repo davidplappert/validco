@@ -15,7 +15,7 @@ from .regions import (
     RegionStatusController,
 )
 from .suggest import SuggestController
-from .system import HealthController
+from .system import HealthController, RootController
 
 __all__ = [
     "Controller",
@@ -28,6 +28,7 @@ __all__ = [
     "RegionRequestController",
     "RegionStatusController",
     "RegionsController",
+    "RootController",
     "StartPointResolver",
     "SuggestController",
 ]

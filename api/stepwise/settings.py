@@ -117,6 +117,21 @@ class Settings:
         return self.environ.get("CORS_ALLOW_ORIGIN", "*")
 
     @property
+    def site_url(self) -> str:
+        """Where the browser app lives, for the root redirect.
+
+        Falls back to the CORS origin because that is the same CloudFront
+        domain by construction — the stack sets both from one value — so a
+        deployment that can talk to the app can always redirect to it, even if
+        SITE_URL were ever forgotten.
+        """
+        configured = self.environ.get("SITE_URL", "").strip()
+        if configured:
+            return configured
+        origin = self.cors_allow_origin
+        return origin if origin.startswith("https://") else ""
+
+    @property
     def on_demand_regions(self) -> bool:
         """Whether this deployment can extract new coverage areas."""
         return bool(self.region_bucket and self.builder_function)

@@ -213,6 +213,21 @@ class TestLambda:
         ]
         assert api_functions, "the API function must receive CORS_ALLOW_ORIGIN"
 
+    def test_the_api_knows_where_the_app_is(self, template):
+        """The root redirect needs the site's URL, injected the same way.
+
+        Without it the API's base URL falls back to describing itself instead
+        of sending a browser to the product — which is the state it was in when
+        someone first pasted that URL into a form and got a 404.
+        """
+        functions = template.find_resources("AWS::Lambda::Function")
+        with_site = [
+            f
+            for f in functions.values()
+            if "SITE_URL" in f["Properties"].get("Environment", {}).get("Variables", {})
+        ]
+        assert with_site, "the API function must receive SITE_URL"
+
 
 class TestApiGateway:
     def test_is_a_rest_api(self, template):

@@ -38,6 +38,7 @@ from .controllers import (
     RegionRequestController,
     RegionsController,
     RegionStatusController,
+    RootController,
     SuggestController,
 )
 from .http.router import Router
@@ -55,6 +56,7 @@ def build_router() -> Router:
     """
     return (
         Router()
+        .register("GET", "/", RootController())
         .register("GET", "/v1/health", HealthController())
         .register("GET", "/v1/regions", RegionsController())
         .register("POST", "/v1/regions", RegionRequestController())

@@ -442,6 +442,11 @@ class StepWiseStack(Stack):
                 "APP_VERSION": app_version,
                 "ENV_NAME": self.env_name,
                 "CORS_ALLOW_ORIGIN": f"https://{distribution.distribution_domain_name}",
+                # The same domain, under a name that says what it is used for.
+                # The API's root path redirects here, because that base URL is
+                # the one most likely to be pasted somewhere by hand and it
+                # used to answer with a 404.
+                "SITE_URL": f"https://{distribution.distribution_domain_name}",
                 # Surfaces X-Ray SDK issues as logs instead of exceptions if the
                 # SDK is ever added; harmless otherwise.
                 "AWS_XRAY_CONTEXT_MISSING": "LOG_ERROR",

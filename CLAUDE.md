@@ -324,10 +324,16 @@ Three things about that are worth keeping:
   substituting a shorter street name would not redact anything — it would
   corrupt every array after the edit. The scrub skips any blob starting with
   the `STEPWISE` magic, which is the same line `tests/test_privacy.py` draws.
-- **The first pass missed the guard file itself.** The rule was `\bstanley\b`,
-  and in a regex literal — `\bstanley\s+...` — the escape's `b` makes
-  "bstanley" one word run, so there is no boundary to match. Word boundaries
-  are the wrong tool for scrubbing source that contains regexes.
+- **The first pass missed the guard file itself.** The scrub rule required a
+  word boundary before the name. In the guard the name sits inside a regex
+  literal, directly after a `\b` escape — and since a backslash is not a word
+  character, the escape's letter and the name form a single run with no
+  boundary between them. Word boundaries are the wrong tool for scrubbing
+  source that contains regexes, and the same mistake later turned up in this
+  guard's own tokenizer, which is why it now hashes every substring rather
+  than whole tokens. **Do not write the term itself into this file to
+  illustrate the point** — that has been done twice, and both times it was the
+  leak, not the explanation.
 - **Old clones and GitHub's unreferenced objects still hold the old commits**
   until they are garbage collected. A rewrite is not a recall.
 

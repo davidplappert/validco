@@ -113,8 +113,42 @@ FORBIDDEN_WEIGHTS: list[tuple[str, str]] = [
     ),
 ]
 
-#: Words, for the token scan. Deliberately includes runs inside identifiers.
+#: Runs of letters. Note these are *runs*, not words: punctuation separates
+#: them, so an escape sequence butted against a name yields one run.
 WORD = re.compile(r"[A-Za-z]{3,}")
+
+#: Shortest substring worth hashing. Below this, collisions with ordinary
+#: English words stop being interesting and start being noise.
+MIN_FRAGMENT = 5
+
+
+def fragments(line: str) -> list[str]:
+    """Every substring of every letter run, down to ``MIN_FRAGMENT``.
+
+    Matching whole runs is not enough, and the proof is that this guard
+    reported success while the forbidden street name sat in ``CLAUDE.md``. It
+    was written inside a regex, immediately after a ``\b`` escape, and because
+    a backslash is not a letter the run the tokenizer saw was the escape's
+    letter joined to the name — which hashes to something else entirely.
+
+    That is the *same* adjacency mistake that made the history rewrite miss
+    this file on its first pass, appearing one layer up in the thing meant to
+    catch it. Any scheme that depends on where a name starts and stops will
+    keep failing this way, so this one gives up on boundaries: every substring
+    of every run is hashed, and a name is caught wherever it is embedded.
+
+    The cost is O(n²) hashes per run. Runs are short, so in practice this adds
+    well under a second across the repository — cheap for the class of miss it
+    removes.
+    """
+    out: list[str] = []
+    for run in WORD.findall(line):
+        length = len(run)
+        for start in range(length):
+            for end in range(start + MIN_FRAGMENT, length + 1):
+                out.append(run[start:end])
+    return out
+
 
 #: Signed decimals, for the coordinate scan.
 DECIMAL = re.compile(r"-?\d{1,3}\.\d{2,}")
@@ -162,7 +196,7 @@ def scan(extract) -> dict[str, list[str]]:
 @pytest.mark.parametrize(("forbidden", "description"), FORBIDDEN_WORDS)
 def test_no_personal_word_appears(forbidden: str, description: str):
     """Fail the build if a forbidden word appears anywhere in the source."""
-    offenders = scan(WORD.findall).get(forbidden, [])
+    offenders = scan(fragments).get(forbidden, [])
     assert not offenders, f"found {description} in a public repository:\n  " + "\n  ".join(
         offenders[:20]
     )
@@ -253,7 +287,7 @@ def test_a_planted_value_is_actually_found(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setattr(module, "source_files", lambda: [planted])
     monkeypatch.setattr(module, "ROOT", tmp_path)
 
-    words = scan(WORD.findall)
+    words = scan(fragments)
     assert any(d in words for d, _ in FORBIDDEN_WORDS), "planted street name was not detected"
 
     def truncated(line: str) -> list[str]:
